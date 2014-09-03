@@ -1,0 +1,46 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta http-equiv="Content-Style-Type" content="text/css">
+<link rel="up" title="TJpgDec" href="../00index.html">
+<link rel="stylesheet" href="../css_e.css" type="text/css" media="screen" title="ELM Default">
+<title>TjpgDec - JDEC</title>
+</head>
+
+<body>
+
+<div class="para">
+<h2>JDEC</h2>
+<p>The <tt>JDEC</tt> structure holds the data, pointer and flags to manage the decompression session.</p>
+<pre>
+<span class="k">typedef</span> <span class="k">struct</span> JDEC JDEC;
+<span class="k">struct</span> JDEC {
+    UINT dctr;                <span class="c">/* Number of bytes available in the input buffer */</span>
+    BYTE* dptr;               <span class="c">/* Current data read ptr */</span>
+    BYTE* inbuf;              <span class="c">/* Bit stream input buffer */</span>
+    BYTE dmsk;                <span class="c">/* Current bit in the current read byte */</span>
+    BYTE scale;               <span class="c">/* Output scaling ratio */</span>
+    BYTE msx, msy;            <span class="c">/* MCU size in unit of block (width, height) */</span>
+    BYTE qtid[3];             <span class="c">/* Quantization table ID of each component */</span>
+    SHORT dcv[3];             <span class="c">/* Previous DC element of each component */</span>
+    WORD nrst;                <span class="c">/* Restart inverval */</span>
+    UINT width, height;       <span class="c">/* Size of the input image (pixel) */</span>
+    BYTE* huffbits[2][2];     <span class="c">/* Huffman bit distribution tables [yc][dcac] */</span>
+    WORD* huffcode[2][2];     <span class="c">/* Huffman code word tables [yc][dcac] */</span>
+    BYTE* huffdata[2][2];     <span class="c">/* Huffman decoded data tables [yc][dcac] */</span>
+    LONG* qttbl[4];           <span class="c">/* De-quaitizer tables [id] */</span>
+    void* workbuf;            <span class="c">/* Working buffer for IDCT and RGB output */</span>
+    BYTE* mcubuf;             <span class="c">/* Working buffer for the MCU */</span>
+    void* pool;               <span class="c">/* Pointer to available memory pool */</span>
+    UINT sz_pool;             <span class="c">/* Size of momory pool (bytes available) */</span>
+    UINT (*infunc)(JDEC*, BYTE*, UINT);    <span class="c">/* Pointer to jpeg stream input function */</span>
+    UINT (*outfunc)(JDEC*, void*, JRECT*); <span class="c">/* Pointer to RGB output function */</span>
+    void* device;            <span class="c">/* Pointer to I/O device identifiler for the session */</span>
+};
+</pre>
+</div>
+
+<p class="foot"><a href="../00index_e.html">Return</a></p>
+</body>
+</html>
