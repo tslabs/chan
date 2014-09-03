@@ -13,7 +13,7 @@
 
 <div class="para">
 <h2>pf_mount</h2>
-<p>The pf_mount fucntion mounts/unmounts a volume.</p>
+<p>The pf_mount fucntion mounts a volume.</p>
 <pre>
 FRESULT pf_mount (
   FATFS*  <span class="arg">fs</span>  <span class="c">/* [IN] Pointer to the work area */</span>
@@ -46,7 +46,7 @@ FRESULT pf_mount (
 
 <div class="para">
 <h4>Description</h4>
-<p>The <tt>pf_mount()</tt> function registers/unregisters a work area to the Petit FatFs module. The volume is mounted on registration. The volume must be mounted with this function prior to any other file function and after every media changes. To unregister the work area, specify a NULL to the <tt class="arg">fs</tt>, and then the work area can be discarded.</p>
+<p>The <tt>pf_mount()</tt> function registers a work area to the Petit FatFs module. The volume is mounted on registration. The volume must be mounted with this function prior to any other file function and after every media changes.</p>
 </div>
 
 

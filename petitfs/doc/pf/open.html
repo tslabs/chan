@@ -36,11 +36,9 @@ FRESULT pf_open (
 <dt>FR_OK (0)</dt>
 <dd>The function succeeded.</dd>
 <dt>FR_NO_FILE</dt>
-<dd>Could not find the file.</dd>
-<dt>FR_NO_PATH</dt>
-<dd>Could not find the path.</dd>
+<dd>Could not find the file or path.</dd>
 <dt>FR_DISK_ERR</dt>
-<dd>The function failed due to an error in the disk function, a wrong FAT structure or an internal error.</dd>
+<dd>The function failed due to a hard error in the disk function, a wrong FAT structure or an internal error.</dd>
 <dt>FR_NOT_ENABLED</dt>
 <dd>The volume has not been mounted.</dd>
 </dl>
@@ -56,7 +54,7 @@ FRESULT pf_open (
 <div class="para">
 <h4>Example</h4>
 <pre>
-void main (void)
+int main (void)
 {
     FATFS fs;          <span class="c">/* Work area (file system object) for the volume */</span>
     BYTE buff[16];     <span class="c">/* File read buffer */</span>
@@ -86,8 +84,6 @@ void main (void)
 
     ....
 
-    <span class="c">/* Unregister the work area before discard it */</span>
-    f_mount(0);
 }
 </pre>
 </div>

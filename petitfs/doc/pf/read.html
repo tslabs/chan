@@ -17,8 +17,8 @@
 <pre>
 FRESULT pf_read (
   void* <span class="arg">buff</span>,  <span class="c">/* [OUT] Pointer to the read buffer */</span>
-  WORD <span class="arg">btr</span>,    <span class="c">/* [IN]  Number of bytes to read */</span>
-  WORD* <span class="arg">br</span>     <span class="c">/* [OUT] Pointer to the variable to return number of bytes read */</span>
+  UINT <span class="arg">btr</span>,    <span class="c">/* [IN]  Number of bytes to read */</span>
+  UINT* <span class="arg">br</span>     <span class="c">/* [OUT] Number of bytes read */</span>
 );
 </pre>
 </div>
@@ -31,7 +31,7 @@ FRESULT pf_read (
 <dt>btr</dt>
 <dd>Number of bytes to read.</dd>
 <dt>br</dt>
-<dd>Pointer to the WORD variable to return number of bytes read.</dd>
+<dd>Pointer to the variable to return number of bytes read.</dd>
 </dl>
 </div>
 
@@ -42,7 +42,7 @@ FRESULT pf_read (
 <dt>FR_OK (0)</dt>
 <dd>The function succeeded.</dd>
 <dt>FR_DISK_ERR</dt>
-<dd>The function failed due to an error in the disk function, a wrong FAT structure or an internal error.</dd>
+<dd>The function failed due to a hard error in the disk function, a wrong FAT structure or an internal error.</dd>
 <dt>FR_NOT_OPENED</dt>
 <dd>The file has not been opened.</dd>
 <dt>FR_NOT_ENABLED</dt>
@@ -53,7 +53,7 @@ FRESULT pf_read (
 
 <div class="para">
 <h4>Description</h4>
-<p>The read pointer in the file system object advances in number of bytes read. After the function succeeded, <tt>*br</tt> should be checked to detect end of file. In case of <tt>*br &lt; btr</tt>, it means the read pointer reached end of file during read operation.</p>
+<p>The file read/write pointer in the file system object advances in number of bytes read. After the function succeeded, <tt>*br</tt> should be checked to detect end of file. In case of <tt>*br &lt; btr</tt>, it means the read pointer reached end of file during read operation.</p>
 <p>If a NULL is given to the <tt class="arg">buff</tt>, the read bytes will be forwarded to the outgoing stream instead of the memory. The streaming function will be typically built-in the <tt>disk_readp()</tt> function.</p>
 </div>
 
