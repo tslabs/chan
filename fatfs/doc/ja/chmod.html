@@ -30,11 +30,11 @@ FRESULT f_chmod (
 <dt>Attribute</dt>
 <dd>設定する属性。指定可能な属性は次の通りで、これらの組み合わせで指定します。指定されなかった属性は解除されます。<br>
 <table class="lst">
-<tr><th>値</th><th>意味</th></td>
-<tr><td>AM_RDO</td><td>リード・オンリー</td></td>
-<tr><td>AM_ARC</td><td>アーカイブ</td></td>
-<tr><td>AM_SYS</td><td>システム</td></td>
-<tr><td>AM_HID</td><td>ヒドゥン</td></td>
+<tr><th>値</th><th>意味</th></tr>
+<tr><td>AM_RDO</td><td>リード・オンリー</td></tr>
+<tr><td>AM_ARC</td><td>アーカイブ</td></tr>
+<tr><td>AM_SYS</td><td>システム</td></tr>
+<tr><td>AM_HID</td><td>ヒドゥン</td></tr>
 </table>
 </dd>
 <dt>AttributeMask</dt>
@@ -60,8 +60,10 @@ FRESULT f_chmod (
 <dd>メディアがセットされていないなど、ディスク・ドライブが動作不能状態。</dd>
 <dt>FR_WRITE_PROTECTED</dt>
 <dd>メディアが書き込み禁止状態。</dd>
-<dt>FR_RW_ERROR</dt>
-<dd>ディスク・エラーまたは内部エラーによる失敗。</dd>
+<dt>FR_DISK_ERR</dt>
+<dd>ディスク・エラーによる失敗。</dd>
+<dt>FR_INT_ERR</dt>
+<dd>不正なFAT構造または内部エラーによる失敗。</dd>
 <dt>FR_NOT_ENABLED</dt>
 <dd>その論理ドライブにワーク・エリアが与えられていない。</dd>
 <dt>FR_NO_FILESYSTEM</dt>

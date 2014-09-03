@@ -17,7 +17,7 @@
 DRESULT disk_read (
   BYTE <em>Drive</em>,          /* Physical drive number */
   BYTE* <em>Buffer</em>,        /* Pointer to the read data buffer */
-  DWORD <em>SectorNumber</em>,  /* Sector number to read from */
+  DWORD <em>SectorNumber</em>,  /* Start sector number */
   BYTE <em>SectorCount</em>     /* Number of sectros to read */
 );
 </pre>
@@ -29,7 +29,7 @@ DRESULT disk_read (
 <dt>Drive</dt>
 <dd>Specifies the physical drive number.</dd>
 <dt>Buffer</dt>
-<dd>Pointer to the read buffer to store the read data. The buffer size of number of bytes to be read is required.</dd>
+<dd>Pointer to the byte array to store the read data. The buffer size of number of bytes to be read is required. The start address specified by upper layer may be aligned or non-aligned.</dd>
 <dt>SectorNumber</dt>
 <dd>Specifies the start sector number in logical block address (LBA).</dd>
 <dt>SectorCount</dt>
@@ -44,7 +44,7 @@ DRESULT disk_read (
 <dt>RES_OK (0)</dt>
 <dd>The function succeeded.</dd>
 <dt>RES_ERROR</dt>
-<dd>Any error occured during the read operation.</dd>
+<dd>Any hard error occured during the read operation and could not recover it.</dd>
 <dt>RES_PARERR</dt>
 <dd>Invalid parameter.</dd>
 <dt>RES_NOTRDY</dt>
