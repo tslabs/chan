@@ -16,8 +16,8 @@
 <p>The disk_writep function writes data to the sector.</p>
 <pre>
 DRESULT disk_writep (
-  BYTE* <em>Buffer</em>,       /* Pointer to the data to be written */
-  DWORD <em>SectorBytes</em>,  /* Sector number or Number of bytes to wtite */
+  BYTE* <span class="arg">buff</span>,        <span class="c">/* [IN] Pointer to the data to be written */</span>
+  DWORD <span class="arg">sect_bytes</span>,  <span class="c">/* [IN] Sector number or Number of bytes to wtite */</span>
 );
 </pre>
 </div>
@@ -25,10 +25,10 @@ DRESULT disk_writep (
 <div class="para">
 <h4>Parameters</h4>
 <dl class="par">
-<dt>Buffer</dt>
+<dt>buff</dt>
 <dd>Pointer to the data to be sent to the sector. If a NULL is given, the function initiate/finalize the write operation.</dd>
-<dt>SectorBytes</dt>
-<dd>Specifies nubmer of bytes to send if <tt>Buffer</tt> is not a NULL. If <tt>Buffer</tt> is a NULL and <tt>SectorBytes</tt> is not a zero, the function initiates a write operation to the sector. If both parameters are zero, the function finalize the current sector write operation.</dd>
+<dt>sect_bytes</dt>
+<dd>Specifies nubmer of bytes to send if <tt class="arg">buff</tt> is not a NULL. If <tt class="arg">buff</tt> is a NULL and <tt class="arg">sect_bytes</tt> is not a zero, the function initiates a write operation to the sector. If both parameters are zero, the function finalize the current sector write operation.</dd>
 </dl>
 </div>
 
@@ -58,7 +58,7 @@ DRESULT disk_writep (
 <li><tt>disk_writep(data, byte_to_write);</tt> ...</li>
 <li><tt>disk_writep(0, 0);</tt> Finalize the write operation. If number of bytes sent is less than 512, left bytes in the sector is filled by zero.</li>
 </ol>
-<p>If a write operaion is in progress, disk_readp function will fail and disk_initialize function finalize the write operation.</p>
+<p>If a write operation is in progress, <tt>disk_readp()</tt> function will fail and <tt>disk_initialize()</tt> function finalize the write operation.</p>
 </div>
 
 
