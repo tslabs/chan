@@ -62,7 +62,7 @@ FRESULT f_mount (
 <li>File system object is not initialized. It is cleared by <tt>f_mount()</tt>.</li>
 <li>Physical drive is not initialized. It is de-initialized by system reset or media removal.</li>
 </ul>
-<p>If the function with forced mount failed, it means that the file system object is registered but the volume is currently not available. Mount process will also be attempted in subsequent file access functions.</p>
+<p>If the function with forced mount failed, it means that the file system object has been registered successfully but the volume is currently not ready to use. Mount process will also be attempted in subsequent file access functions.</p>
 <p>If implementation of the disk I/O layer lacks media change detection, application program needs to perform a <tt>f_mount()</tt> after each media change to force cleared the file system object.</p>
 </div>
 
