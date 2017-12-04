@@ -2,7 +2,7 @@
 /  The Main Development Bench of FatFs Module
 /-------------------------------------------------------------------------/
 /
-/  Copyright (C) 2013, ChaN, all right reserved.
+/  Copyright (C) 2017, ChaN, all right reserved.
 /
 / * This software is a free software and there is NO WARRANTY.
 / * No restriction on use. You can use, modify and redistribute it for
@@ -13,71 +13,71 @@
 
 
 #include <string.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <locale.h>
 #include "diskio.h"
 #include "ff.h"
 
-int assign_drives (void);
+int assign_drives (void);	/* Initialization of low level I/O module */
+
+
+#if FF_MULTI_PARTITION
+
+This is an example of volume - partition resolution table.
+
+PARTITION VolToPart[] = {
+	{0, 0},	/* "0:" <== PD# 0, auto detect */
+	{1, 0},	/* "1:" <== PD# 1, auto detect */
+	{2, 0},	/* "2:" <== PD# 2, auto detect */
+	{3, 1},	/* "3:" <== PD# 3, 1st partition */
+	{3, 2},	/* "4:" <== PD# 3, 2nd partition */
+	{3, 3},	/* "5:" <== PD# 3, 3rd partition */
+	{4, 0},	/* "6:" <== PD# 4, auto detect */
+	{5, 0}	/* "7:" <== PD# 5, auto detect */
+};
+#endif
 
 
 #ifdef UNICODE
-#if !_LFN_UNICODE
-#error Configuration mismatch. _LFN_UNICODE must be 1.
+#if FF_LFN_UNICODE != 1
+#error FF_LFN_UNICODE must be 1 in this build configuration UTF16.
 #endif
 #else
-#if _LFN_UNICODE
-#error Configuration mismatch. _LFN_UNICODE must be 0.
+#if FF_USE_LFN && FF_LFN_UNICODE == 1
+#error FF_LFN_UNICODE must be 0 or 2 in this build configuration ANSI_UTF8.
 #endif
 #endif
 
 
-
-#if _MULTI_PARTITION	/* Volume - partition resolution table (Example) */
-PARTITION VolToPart[] = {
-	{0, 0},	/* "0:" <== Disk# 0, auto detect */
-	{1, 0},	/* "1:" <== Disk# 1, auto detect */
-	{2, 0},	/* "2:" <== Disk# 2, auto detect */
-	{3, 1},	/* "3:" <== Disk# 3, 1st partition */
-	{3, 2},	/* "4:" <== Disk# 3, 2nd partition */
-	{3, 3},	/* "5:" <== Disk# 3, 3rd partition */
-	{4, 0},	/* "6:" <== Disk# 4, auto detect */
-	{5, 0}	/* "7:" <== Disk# 5, auto detect */
-};
-#endif
+#define LINE_LEN 300
 
 
 /*---------------------------------------------------------*/
 /* Work Area                                               */
 /*---------------------------------------------------------*/
 
-
 LONGLONG AccSize;			/* Work register for scan_files() */
 WORD AccFiles, AccDirs;
 FILINFO Finfo;
-#if _USE_LFN
-TCHAR LFName[256];
-#endif
 
-TCHAR Line[300];			/* Console input/output buffer */
-HANDLE hCon, hKey;
+WCHAR Line[LINE_LEN];		/* Console input/output buffer */
+HANDLE hConOut, hConIn;
+WORD CodePage = FF_CODE_PAGE;
 
-FATFS FatFs[_VOLUMES];		/* File system object for logical drive */
+FATFS FatFs[FF_VOLUMES];	/* Filesystem object for logical drive */
 BYTE Buff[262144];			/* Working buffer */
 
-#if _USE_FASTSEEK
+#if FF_USE_FASTSEEK
 DWORD SeekTbl[16];			/* Link map table for fast seek feature */
 #endif
 
 
-/*---------------------------------------------------------*/
-/* User Provided RTC Function for FatFs module             */
-/*---------------------------------------------------------*/
-/* This is a real time clock service to be called from     */
-/* FatFs module. Any valid time must be returned even if   */
-/* the system does not support an RTC.                     */
-/* This function is not required in read-only cfg.         */
+
+/*-------------------------------------------------------------------*/
+/* User Provided RTC Function for FatFs module                       */
+/*-------------------------------------------------------------------*/
+/* This is a real time clock service to be called from FatFs module. */
+/* This function is needed when FF_FS_READONLY == 0 and FF_FS_NORTC == 0 */
 
 DWORD get_fattime (void)
 {
@@ -87,7 +87,7 @@ DWORD get_fattime (void)
 	GetLocalTime(&tm);
 
 	/* Pack date and time into a DWORD variable */
-	return 	  ((DWORD)(tm.wYear - 1980) << 25)
+	return    ((DWORD)(tm.wYear - 1980) << 25)
 			| ((DWORD)tm.wMonth << 21)
 			| ((DWORD)tm.wDay << 16)
 			| (WORD)(tm.wHour << 11)
@@ -97,62 +97,47 @@ DWORD get_fattime (void)
 
 
 
+
 /*--------------------------------------------------------------------------*/
 /* Monitor                                                                  */
 
-/*----------------------------------------------*/
-/* Get a value of the string                    */
-/*----------------------------------------------*/
-/*	"123 -5   0x3ff 0b1111 0377  w "
-	    ^                           1st call returns 123 and next ptr
-	       ^                        2nd call returns -5 and next ptr
-                   ^                3rd call returns 1023 and next ptr
-                          ^         4th call returns 15 and next ptr
-                               ^    5th call returns 255 and next ptr
-                                  ^ 6th call fails and returns 0
-*/
 
-int xatoi (			/* 0:Failed, 1:Successful */
-	TCHAR **str,	/* Pointer to pointer to the string */
-	long *res		/* Pointer to a valiable to store the value */
+int xatoll (		/* 0:Failed, 1:Successful */
+	WCHAR **str,	/* Pointer to pointer to the string */
+	QWORD *res		/* Pointer to a valiable to store the value */
 )
 {
-	unsigned long val;
-	unsigned char r, s = 0;
-	TCHAR c;
+	QWORD val;
+	UINT r;
+	WCHAR c;
 
 
 	*res = 0;
-	while ((c = **str) == ' ') (*str)++;	/* Skip leading spaces */
+	while ((c = **str) == L' ') (*str)++;	/* Skip leading spaces */
 
-	if (c == '-') {		/* negative? */
-		s = 1;
-		c = *(++(*str));
-	}
-
-	if (c == '0') {
+	if (c == L'0') {
 		c = *(++(*str));
 		switch (c) {
-		case 'x':		/* hexdecimal */
+		case L'x':		/* hexdecimal */
 			r = 16; c = *(++(*str));
 			break;
-		case 'b':		/* binary */
+		case L'b':		/* binary */
 			r = 2; c = *(++(*str));
 			break;
 		default:
-			if (c <= ' ') return 1;	/* single zero */
-			if (c < '0' || c > '9') return 0;	/* invalid char */
+			if (c <= L' ') return 1;	/* single zero */
+			if (c < L'0' || c > L'9') return 0;	/* invalid char */
 			r = 8;		/* octal */
 		}
 	} else {
-		if (c < '0' || c > '9') return 0;	/* EOL or invalid char */
+		if (c < L'0' || c > L'9') return 0;	/* EOL or invalid char */
 		r = 10;			/* decimal */
 	}
 
 	val = 0;
-	while (c > ' ') {
-		if (c >= 'a') c -= 0x20;
-		c -= '0';
+	while (c > L' ') {
+		if (c >= L'a') c -= 0x20;
+		c -= L'0';
 		if (c >= 17) {
 			c -= 7;
 			if (c <= 9) return 0;	/* invalid char */
@@ -161,66 +146,259 @@ int xatoi (			/* 0:Failed, 1:Successful */
 		val = val * r + c;
 		c = *(++(*str));
 	}
-	if (s) val = 0 - val;			/* apply sign if needed */
 
 	*res = val;
 	return 1;
 }
 
 
+int xatoi (
+	WCHAR **str,	/* Pointer to pointer to the string */
+	DWORD *res		/* Pointer to a valiable to store the value */
+)
+{
+	QWORD d;
+
+
+	*res = 0;
+	if (!xatoll(str, &d)) return 0;
+	*res = (DWORD)d;
+	return 1;
+}
+
+
+void zputc (
+	WCHAR c
+)
+{
+	DWORD wc;
+
+	WriteConsoleW(hConOut, &c, 1, &wc, 0);
+}
+
+
+void zprintf (
+	const WCHAR *fmt,
+	...
+)
+{
+	UINT r, i, j, w, f;
+	unsigned __int64 v;
+	WCHAR s[32], c, d, *p;
+	va_list arp;
+
+	va_start(arp, fmt);
+
+	for (;;) {
+		c = *fmt++;					/* Get a char */
+		if (!c) break;				/* End of format? */
+		if (c != L'%') {			/* Pass through it if not a % sequense */
+			zputc(c); continue;
+		}
+		f = 0;
+		c = *fmt++;					/* Get first char of the sequense */
+		if (c == L'0') {			/* Flag: '0' padded */
+			f = 1; c = *fmt++;
+		} else {
+			if (c == '-') {			/* Flag: left justified */
+				f = 2; c = *fmt++;
+			}
+		}
+		for (w = 0; c >= L'0' && c <= L'9'; c = *fmt++)	/* Minimum width */
+			w = w * 10 + c - L'0';
+		if (c == L'l' || c == L'L') {	/* Prefix: Size is long int */
+			f |= 4; c = *fmt++;
+			if (c == L'l' || c == L'L') {	/* Prefix: Size is long long int */
+				f |= 8; c = *fmt++;
+			}
+		}
+		if (!c) break;				/* End of format? */
+		d = c;
+		if (d >= L'a') d -= 0x20;
+		switch (d) {				/* Type is... */
+		case L'S' :					/* String */
+			p = va_arg(arp, WCHAR*);
+			for (j = 0; p[j]; j++) ;
+			while (!(f & 2) && j++ < w) zputc(L' ');
+			while (*p) zputc(*p++);
+			while (j++ < w) zputc(L' ');
+			continue;
+		case L'C' :					/* Character */
+			zputc((WCHAR)va_arg(arp, int)); continue;
+		case L'B' :					/* Binary */
+			r = 2; break;
+		case L'O' :					/* Octal */
+			r = 8; break;
+		case L'D' :					/* Signed decimal */
+		case L'U' :					/* Unsigned decimal */
+			r = 10; break;
+		case L'X' :					/* Hexdecimal */
+			r = 16; break;
+		default:					/* Unknown type (passthrough) */
+			zputc(c); continue;
+		}
+
+		/* Get an argument and put it in numeral */
+		if (f & 8) {
+			v = va_arg(arp, __int64);
+		} else {
+			if (f & 4) {
+				v = va_arg(arp, long);
+			} else {
+				v = (d == L'D') ? (long)va_arg(arp, int) : (long)va_arg(arp, unsigned int);
+			}
+		}
+		if (d == L'D' && (v & 0x8000000000000000)) {
+			v = 0 - v;
+			f |= 16;
+		}
+		i = 0;
+		do {
+			d = (WCHAR)(v % r); v /= r;
+			if (d > 9) d += (c == L'x') ? 0x27 : 0x07;
+			s[i++] = d + '0';
+		} while (v && i < 32);
+		if (f & 16) s[i++] = L'-';
+		j = i; d = (f & 1) ? L'0' : L' ';
+		while (!(f & 2) && j++ < w) zputc(d);
+		do zputc(s[--i]); while(i);
+		while (j++ < w) zputc(L' ');
+	}
+
+	va_end(arp);
+
+}
+
+
+void get_line (
+	WCHAR* buf,
+	UINT len
+)
+{
+	UINT i = 0;
+	DWORD n;
+
+
+	for (;;) {
+		ReadConsoleW(hConIn, &buf[i], 1, &n, 0);
+		if (buf[i] == L'\b') {
+			if (i) i--;
+			continue;
+		}
+		if (buf[i] == L'\r') {
+			buf[i] = 0;
+			break;
+		}
+		if ((UINT)buf[i] >= L' ' && i + n < len) i += n;
+	}
+}
+
+
+WCHAR* ts2ws (const TCHAR* str)
+{
+	static WCHAR rstr[2][512];
+	static int ri;
+
+
+	ri = (ri + 1) % 2;
+	rstr[ri][0] = 0;
+#if FF_USE_LFN && FF_LFN_UNICODE == 1
+	wcscpy(rstr[ri], str);
+#elif FF_USE_LFN && FF_LFN_UNICODE == 2
+	MultiByteToWideChar(CP_UTF8, 0, str, -1, rstr[ri], 512);
+#else
+	MultiByteToWideChar(CodePage, 0, str, -1, rstr[ri], 512);
+#endif
+	return rstr[ri];
+}
+
+
+TCHAR* ws2ts (const WCHAR* str)
+{
+	static TCHAR rstr[2][1024];
+	static int ri;
+
+
+	ri = (ri + 1) % 2;
+	rstr[ri][0] = 0;
+#if FF_USE_LFN && FF_LFN_UNICODE == 1
+	wcscpy(rstr[ri], str);
+#elif FF_USE_LFN && FF_LFN_UNICODE == 2
+	WideCharToMultiByte(CP_UTF8, 0, str, -1, rstr[ri], 512, 0, 0);
+#else
+	WideCharToMultiByte(CodePage, WC_NO_BEST_FIT_CHARS, str, -1, rstr[ri], 512, 0, 0);
+#endif
+	return rstr[ri];
+}
+
+
+
+
 /*----------------------------------------------*/
 /* Dump a block of byte array                   */
 
 void put_dump (
-	const unsigned char* buff,	/* Pointer to the byte array to be dumped */
-	unsigned long addr,			/* Heading address value */
-	int cnt						/* Number of bytes to be dumped */
+	const BYTE* buff,	/* Pointer to the byte array to be dumped */
+	DWORD addr,			/* Heading address value */
+	int cnt				/* Number of bytes to be dumped */
 )
 {
 	int i;
 
 
-	_tprintf(_T("%08lX:"), addr);
+	zprintf(L"%08X:", addr);
 
-	for (i = 0; i < cnt; i++)
-		_tprintf(_T(" %02X"), buff[i]);
+	for (i = 0; i < cnt; i++) {
+		zprintf(L" %02X", buff[i]);
+	}
 
-	_puttchar(' ');
-	for (i = 0; i < cnt; i++)
-		_puttchar((TCHAR)((buff[i] >= ' ' && buff[i] <= '~') ? buff[i] : '.'));
+	zputc(L' ');
+	for (i = 0; i < cnt; i++) {
+		zputc((buff[i] >= ' ' && buff[i] <= '~') ? buff[i] : '.');
+	}
 
-	_puttchar('\n');
+	zputc(L'\n');
+}
+
+
+
+UINT forward (
+	const BYTE* buf,
+	UINT btf
+)
+{
+	UINT i;
+
+
+	if (btf) {	/* Transfer call? */
+		for (i = 0; i < btf; i++) zputc((TCHAR)buf[i]);
+		return btf;
+	} else {	/* Sens call */
+		return 1;
+	}
 }
 
 
 
 FRESULT scan_files (
-	TCHAR* path		/* Pointer to the path name working buffer */
+	WCHAR* path		/* Pointer to the path name working buffer */
 )
 {
 	DIR dir;
 	FRESULT res;
 	int i;
-	TCHAR *fn;
 
 
-	if ((res = f_opendir(&dir, path)) == FR_OK) {
-		i = _tcslen(path);
+	if ((res = f_opendir(&dir, ws2ts(path))) == FR_OK) {
+		i = wcslen(path);
 		while (((res = f_readdir(&dir, &Finfo)) == FR_OK) && Finfo.fname[0]) {
-			if (_FS_RPATH && Finfo.fname[0] == '.') continue;
-#if _USE_LFN
-			fn = *Finfo.lfname ? Finfo.lfname : Finfo.fname;
-#else
-			fn = Finfo.fname;
-#endif
 			if (Finfo.fattrib & AM_DIR) {
 				AccDirs++;
-				*(path+i) = '/'; _tcscpy(path+i+1, fn);
+				*(path+i) = L'/'; wcscpy(path+i+1, ts2ws(Finfo.fname));
 				res = scan_files(path);
-				*(path+i) = '\0';
+				*(path+i) = L'\0';
 				if (res != FR_OK) break;
 			} else {
-//				_tprintf(_T("%s/%s\n"), path, fn);
 				AccFiles++;
 				AccSize += Finfo.fsize;
 			}
@@ -235,58 +413,62 @@ FRESULT scan_files (
 
 void put_rc (FRESULT rc)
 {
-	const TCHAR *p =
-		_T("OK\0DISK_ERR\0INT_ERR\0NOT_READY\0NO_FILE\0NO_PATH\0INVALID_NAME\0")
-		_T("DENIED\0EXIST\0INVALID_OBJECT\0WRITE_PROTECTED\0INVALID_DRIVE\0")
-		_T("NOT_ENABLED\0NO_FILE_SYSTEM\0MKFS_ABORTED\0TIMEOUT\0LOCKED\0")
-		_T("NOT_ENOUGH_CORE\0TOO_MANY_OPEN_FILES\0");
+	const WCHAR *p =
+		L"OK\0DISK_ERR\0INT_ERR\0NOT_READY\0NO_FILE\0NO_PATH\0INVALID_NAME\0"
+		L"DENIED\0EXIST\0INVALID_OBJECT\0WRITE_PROTECTED\0INVALID_DRIVE\0"
+		L"NOT_ENABLED\0NO_FILE_SYSTEM\0MKFS_ABORTED\0TIMEOUT\0LOCKED\0"
+		L"NOT_ENOUGH_CORE\0TOO_MANY_OPEN_FILES\0INVALID_PARAMETER\0";
 	FRESULT i;
 
 	for (i = 0; i != rc && *p; i++) {
 		while(*p++) ;
 	}
-	_tprintf(_T("rc=%u FR_%s\n"), (UINT)rc, p);
+	zprintf(L"rc=%u FR_%s\n", (UINT)rc, p);
 }
 
 
 
-const TCHAR HelpStr[] = {
-		_T("[Disk contorls]\n")
-		_T(" di <pd#> - Initialize disk\n")
-		_T(" dd [<pd#> <sect>] - Dump a secrtor\n")
-		_T(" ds <pd#> - Show disk status\n")
-		_T(" dl <file> - Load FAT image into RAM disk (pd#0)\n")
-		_T("[Buffer contorls]\n")
-		_T(" bd <ofs> - Dump working buffer\n")
-		_T(" be <ofs> [<data>] ... - Edit working buffer\n")
-		_T(" br <pd#> <sect> <count> - Read disk into working buffer\n")
-		_T(" bw <pd#> <sect> <count> - Write working buffer into disk\n")
-		_T(" bf <val> - Fill working buffer\n")
-		_T("[File system contorls]\n")
-		_T(" fi <ld#> [<mount>] - Force initialized the volume\n")
-		_T(" fs [<path>] - Show volume status\n")
-		_T(" fl [<path>] - Show a directory\n")
-		_T(" fo <mode> <file> - Open a file\n")
-		_T(" fc - Close the file\n")
-		_T(" fe <ofs> - Move fp in normal seek\n")
-		_T(" fE <ofs> - Move fp in fast seek or Create link table\n")
-		_T(" fd <len> - Read and dump the file\n")
-		_T(" fr <len> - Read the file\n")
-		_T(" fw <len> <val> - Write to the file\n")
-		_T(" fn <object name> <new name> - Rename an object\n")
-		_T(" fu <object name> - Unlink an object\n")
-		_T(" fv - Truncate the file at current fp\n")
-		_T(" fk <dir name> - Create a directory\n")
-		_T(" fa <atrr> <mask> <object name> - Change object attribute\n")
-		_T(" ft <year> <month> <day> <hour> <min> <sec> <object name> - Change timestamp of an object\n")
-		_T(" fx <src file> <dst file> - Copy a file\n")
-		_T(" fg <path> - Change current directory\n")
-		_T(" fj <path> - Change current drive\n")
-		_T(" fq - Show current directory path\n")
-		_T(" fb <name> - Set volume label\n")
-		_T(" fm <ld#> <rule> <cluster size> - Create file system\n")
-		_T(" fp <pd#> <p1 size> <p2 size> <p3 size> <p4 size> - Divide physical drive\n")
-		_T("\n")
+const WCHAR HelpStr[] = {
+		L"[Disk contorls]\n"
+		L" di <pd#> - Initialize disk\n"
+		L" dd [<pd#> <sect>] - Dump a secrtor\n"
+		L" ds <pd#> - Show disk status\n"
+		L" dl <file> - Load FAT image into RAM disk (pd#0)\n"
+		L"[Buffer contorls]\n"
+		L" bd <ofs> - Dump working buffer\n"
+		L" be <ofs> [<data>] ... - Edit working buffer\n"
+		L" br <pd#> <sect> <count> - Read disk into working buffer\n"
+		L" bw <pd#> <sect> <count> - Write working buffer into disk\n"
+		L" bf <val> - Fill working buffer\n"
+		L"[Filesystem contorls]\n"
+		L" fi <ld#> [<opt>] - Force initialized the volume\n"
+		L" fs [<path>] - Show volume status\n"
+		L" fl [<path>] - Show a directory\n"
+		L" fL <path> <pat> - Find a directory\n"
+		L" fo <mode> <file> - Open a file\n"
+		L" fc - Close the file\n"
+		L" fe <ofs> - Move fp in normal seek\n"
+		L" fE <ofs> - Move fp in fast seek or Create link table\n"
+		L" ff <len> - Forward file data to the console\n"
+		L" fh <fsz> <opt> - Allocate a contiguous block to the file\n"
+		L" fd <len> - Read and dump the file\n"
+		L" fr <len> - Read the file\n"
+		L" fw <len> <val> - Write to the file\n"
+		L" fn <object name> <new name> - Rename an object\n"
+		L" fu <object name> - Unlink an object\n"
+		L" fv - Truncate the file at current fp\n"
+		L" fk <dir name> - Create a directory\n"
+		L" fa <atrr> <mask> <object name> - Change object attribute\n"
+		L" ft <year> <month> <day> <hour> <min> <sec> <object name> - Change timestamp of an object\n"
+		L" fx <src file> <dst file> - Copy a file\n"
+		L" fg <path> - Change current directory\n"
+		L" fj <path> - Change current drive\n"
+		L" fq - Show current directory path\n"
+		L" fb <name> - Set volume label\n"
+		L" fm <ld#> <type> <au> - Create FAT volume\n"
+		L" fp <pd#> <p1 size> <p2 size> <p3 size> <p4 size> - Divide physical drive\n"
+		L" p <cp#> - Set code page\n"
+		L"\n"
 	};
 
 
@@ -302,49 +484,10 @@ int set_console_size (
 	SMALL_RECT rect = {0, 0, width - 1, height - 1};
 
 
-	if (SetConsoleScreenBufferSize(hCon, dim) && 
-		SetConsoleWindowInfo(hCon, TRUE, &rect) ) return 1;
+	if (SetConsoleScreenBufferSize(hConOut, dim) &&
+		SetConsoleWindowInfo(hConOut, TRUE, &rect) ) return 1;
 
 	return 0;
-}
-
-
-
-void get_uni (
-	TCHAR* buf,
-	UINT len
-)
-{
-	UINT i = 0;
-	DWORD n;
-
-
-	for (;;) {
-		ReadConsole(hKey, &buf[i], 1, &n, 0);
-		if (buf[i] == 8) {
-			if (i) i--;
-			continue;
-		}
-		if (buf[i] == 13) {
-			buf[i] = 0;
-			break;
-		}
-		if ((UINT)buf[i] >= ' ' && i < len - 1) i++;
-	}
-}
-
-
-void put_uni (
-	TCHAR* buf
-)
-{
-	DWORD n;
-
-
-	while (*buf) {
-		WriteConsole(hCon, buf, 1, &n, 0);
-		buf++;
-	}
 }
 
 
@@ -352,130 +495,140 @@ void put_uni (
 
 /*-----------------------------------------------------------------------*/
 /* Main                                                                  */
+/*-----------------------------------------------------------------------*/
 
 
 int _tmain (int argc, TCHAR *argv[])
 {
-	TCHAR *ptr, *ptr2, pool[50];
-	long p1, p2, p3;
+	WCHAR *ptr, *ptr2, pool[64];
+	TCHAR tpool[64];
+	DWORD p1, p2, p3;
+	QWORD px;
 	BYTE *buf;
 	UINT s1, s2, cnt;
 	WORD w;
 	DWORD dw, ofs = 0, sect = 0, drv = 0;
-	static const BYTE ft[] = {0, 12, 16, 32};
-	FRESULT res;
+	const WCHAR *ft[] = {L"", L"FAT12", L"FAT16", L"FAT32", L"exFAT"};
+	HANDLE h;
+	FRESULT fr;
+	DRESULT dr;
 	FATFS *fs;				/* Pointer to file system object */
 	DIR dir;				/* Directory object */
 	FIL file[2];			/* File objects */
 
 
-	hKey = GetStdHandle(STD_INPUT_HANDLE);
-	hCon = GetStdHandle(STD_OUTPUT_HANDLE);
-	set_console_size(hCon, 100, 35, 500);
+	hConIn = GetStdHandle(STD_INPUT_HANDLE);
+	hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	set_console_size(hConOut, 100, 35, 500);
 
-	if (GetConsoleCP() != _CODE_PAGE) {
-		if (!SetConsoleCP(_CODE_PAGE) || !SetConsoleOutputCP(_CODE_PAGE))
-			_tprintf(_T("Error: Failed to change the console code page.\n"));
+#if FF_CODE_PAGE != 0
+	if (GetConsoleCP() != FF_CODE_PAGE) {
+		if (!SetConsoleCP(FF_CODE_PAGE) || !SetConsoleOutputCP(FF_CODE_PAGE)) {
+			zprintf(L"Error: Failed to change the console code page.\n");
+		}
 	}
-	_stprintf(pool, _T(".%u"), _CODE_PAGE);
-	_tsetlocale(LC_CTYPE, pool);
+#else
+	w = GetConsoleCP();
+	zprintf(L"f_setcp(%u)\n", w);
+	put_rc(f_setcp(w));
+#endif
 
-	_tprintf(_T("FatFs module test monitor (%s, CP:%u/%s)\n\n"),
-			_USE_LFN ? _T("LFN") : _T("SFN"),
-			_CODE_PAGE,
-			_LFN_UNICODE ? _T("Unicode") : _T("ANSI"));
+	zprintf(L"FatFs module test monitor (%s, CP:%u/%s)\n\n",
+			FF_USE_LFN ? L"LFN" : L"SFN",
+			FF_CODE_PAGE,
+			FF_LFN_UNICODE ? L"Unicode" : L"ANSI");
 
-	_stprintf(pool, _T("FatFs debug console (%s, CP:%u/%s)"),
-			_USE_LFN ? _T("LFN") : _T("SFN"),
-			_CODE_PAGE,
-			_LFN_UNICODE ? _T("Unicode") : _T("ANSI"));
-	SetConsoleTitle(pool);
+	swprintf(pool, 64, L"FatFs debug console (%s, CP:%u/%s)",
+			FF_USE_LFN ? L"LFN" : L"SFN",
+			FF_CODE_PAGE,
+			FF_LFN_UNICODE ? L"Unicode" : L"ANSI");
+	SetConsoleTitleW(pool);
 
 	assign_drives();	/* Find physical drives on the PC */
 
-#if _MULTI_PARTITION
-	_tprintf(_T("\nMultiple partition feature is enabled. Each logical drive is tied to the patition as follows:\n"));
+#if FF_MULTI_PARTITION
+	zprintf(L"\nMultiple partition is enabled. Each logical drive is tied to the patition as follows:\n");
 	for (cnt = 0; cnt < sizeof VolToPart / sizeof (PARTITION); cnt++) {
-		const TCHAR *pn[] = {_T("auto detect"), _T("1st partition"), _T("2nd partition"), _T("3rd partition"), _T("4th partition")};
+		const TCHAR *pn[] = {L"auto detect", L"1st partition", L"2nd partition", L"3rd partition", L"4th partition"};
 
-		_tprintf(_T("\"%u:\" <== Disk# %u, %s\n"), cnt, VolToPart[cnt].pd, pn[VolToPart[cnt].pt]);
+		zprintf(L"\"%u:\" <== Disk# %u, %s\n", cnt, VolToPart[cnt].pd, pn[VolToPart[cnt].pt]);
 	}
-	_tprintf(_T("\n"));	
+	zprintf(L"\n");
 #else
-	_tprintf(_T("\nMultiple partition feature is disabled.\nEach logical drive is tied to the same physical drive number.\n\n"));
+	zprintf(L"\nMultiple partition is disabled.\nEach logical drive is tied to the same physical drive number.\n\n");
 #endif
 
-#if _USE_LFN
-	Finfo.lfname = LFName;
-	Finfo.lfsize = sizeof LFName;
-#endif
 
 	for (;;) {
-		_tprintf(_T(">"));
-		get_uni(Line, sizeof Line / sizeof Line[0]);
+		zprintf(L">");
+		get_line(Line, LINE_LEN);
 		ptr = Line;
 
 		switch (*ptr++) {	/* Branch by primary command character */
 
-		case 'q' :	/* Exit program */
+		case L'q' :	/* Exit program */
 			return 0;
 
-		case '?':		/* Show usage */
-			_tprintf(HelpStr);
+		case L'?':		/* Show usage */
+			zprintf(HelpStr);
 			break;
 
-		case 'T' :
-			while (*ptr == ' ') ptr++;
+		case L'T' :
 
 			/* Quick test space */
 
 			break;
 
-		case 'd' :	/* Disk I/O command */
+		case L'd' :	/* Disk I/O command */
 			switch (*ptr++) {	/* Branch by secondary command character */
-			case 'd' :	/* dd [<pd#> <sect>] - Dump a secrtor */
+			case L'd' :	/* dd [<pd#> <sect>] - Dump a secrtor */
 				if (!xatoi(&ptr, &p1)) {
 					p1 = drv; p2 = sect;
 				} else {
 					if (!xatoi(&ptr, &p2)) break;
 				}
-				res = disk_read((BYTE)p1, Buff, p2, 1);
-				if (res) { _tprintf(_T("rc=%d\n"), (WORD)res); break; }
-				_tprintf(_T("Drive:%u Sector:%lu\n"), p1, p2);
+				dr = disk_read((BYTE)p1, Buff, p2, 1);
+				if (dr) { zprintf(L"rc=%d\n", (WORD)dr); break; }
+				zprintf(L"Drive:%u Sector:%lu\n", p1, p2);
 				if (disk_ioctl((BYTE)p1, GET_SECTOR_SIZE, &w) != RES_OK) break;
 				sect = p2 + 1; drv = p1;
-				for (buf = Buff, ofs = 0; ofs < w; buf += 16, ofs += 16)
+				for (buf = Buff, ofs = 0; ofs < w; buf += 16, ofs += 16) {
 					put_dump(buf, ofs, 16);
+				}
 				break;
 
-			case 'i' :	/* di <pd#> - Initialize physical drive */
+			case L'i' :	/* di <pd#> - Initialize physical drive */
 				if (!xatoi(&ptr, &p1)) break;
-				res = disk_initialize((BYTE)p1);
-				_tprintf(_T("rc=%d\n"), res);
-				if (disk_ioctl((BYTE)p1, GET_SECTOR_SIZE, &w) == RES_OK)
-					_tprintf(_T("Sector size = %u\n"), w);
-				if (disk_ioctl((BYTE)p1, GET_SECTOR_COUNT, &dw) == RES_OK)
-					_tprintf(_T("Number of sectors = %u\n"), dw);
+				dr = disk_initialize((BYTE)p1);
+				zprintf(L"rc=%d\n", dr);
+				if (disk_ioctl((BYTE)p1, GET_SECTOR_SIZE, &w) == RES_OK) {
+					zprintf(L"Sector size = %u\n", w);
+				}
+				if (disk_ioctl((BYTE)p1, GET_SECTOR_COUNT, &dw) == RES_OK) {
+					zprintf(L"Number of sectors = %u\n", dw);
+				}
 				break;
 
-			case 'l' :	/* dl <image file> - Load image file into RAM disk */
+			case L'l' :	/* dl <image file> - Load image of a FAT volume into RAM disk */
 				while (*ptr == ' ') ptr++;
-				if (disk_ioctl(0, 200, ptr) == RES_OK)
-					_tprintf(_T("Ok\n"));
+				if (disk_ioctl(0, 200, ptr) == RES_OK) {
+					zprintf(L"Ok\n");
+				}
 				break;
 
 			}
 			break;
 
-		case 'b' :	/* Buffer control command */
+		case L'b' :	/* Buffer control command */
 			switch (*ptr++) {	/* Branch by secondary command character */
-			case 'd' :	/* bd <ofs> - Dump Buff[] */
+			case L'd' :	/* bd <ofs> - Dump Buff[] */
 				if (!xatoi(&ptr, &p1)) break;
-				for (buf = &Buff[p1], ofs = p1, cnt = 32; cnt; cnt--, buf += 16, ofs += 16)
+				for (buf = &Buff[p1], ofs = p1, cnt = 32; cnt; cnt--, buf += 16, ofs += 16) {
 					put_dump(buf, ofs, 16);
+				}
 				break;
 
-			case 'e' :	/* be <ofs> [<data>] ... - Edit Buff[] */
+			case L'e' :	/* be <ofs> [<data>] ... - Edit Buff[] */
 				if (!xatoi(&ptr, &p1)) break;
 				if (xatoi(&ptr, &p2)) {
 					do {
@@ -484,324 +637,375 @@ int _tmain (int argc, TCHAR *argv[])
 					break;
 				}
 				for (;;) {
-					_tprintf(_T("%04X %02X-"), (WORD)(p1), (WORD)Buff[p1]);
-					get_uni(Line, sizeof Line / sizeof Line[0]);
+					zprintf(L"%04X %02X-", (WORD)(p1), (WORD)Buff[p1]);
+					get_line(Line, LINE_LEN);
 					ptr = Line;
 					if (*ptr == '.') break;
 					if (*ptr < ' ') { p1++; continue; }
-					if (xatoi(&ptr, &p2))
+					if (xatoi(&ptr, &p2)) {
 						Buff[p1++] = (BYTE)p2;
-					else
-						_tprintf(_T("???\n"));
+					} else {
+						zprintf(L"???\n");
+					}
 				}
 				break;
 
-			case 'r' :	/* br <pd#> <sector> <count> - Read disk into Buff[] */
+			case L'r' :	/* br <pd#> <sector> <count> - Read disk into Buff[] */
 				if (!xatoi(&ptr, &p1) || !xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
-				_tprintf(_T("rc=%u\n"), disk_read((BYTE)p1, Buff, p2, (BYTE)p3));
+				zprintf(L"rc=%u\n", disk_read((BYTE)p1, Buff, p2, p3));
 				break;
 
-			case 'w' :	/* bw <pd#> <sect> <count> - Write Buff[] into disk */
+			case L'w' :	/* bw <pd#> <sect> <count> - Write Buff[] into disk */
 				if (!xatoi(&ptr, &p1) || !xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
-				_tprintf(_T("rc=%u\n"), disk_write((BYTE)p1, Buff, p2, (BYTE)p3));
+				zprintf(L"rc=%u\n", disk_write((BYTE)p1, Buff, p2, p3));
 				break;
 
-			case 'f' :	/* bf <n> - Fill Buff[] */
+			case L'f' :	/* bf <n> - Fill Buff[] */
 				if (!xatoi(&ptr, &p1)) break;
-				memset(Buff, (BYTE)p1, sizeof Buff);
+				memset(Buff, p1, sizeof Buff);
+				break;
+
+			case L's' :	/* bs - Save Buff[] */
+				while (*ptr == ' ') ptr++;
+				h = CreateFileW(L"Buff.bin", GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+				if (h != INVALID_HANDLE_VALUE) {
+					WriteFile(h, Buff, sizeof Buff, &dw, 0);
+					CloseHandle(h);
+					zprintf(L"Ok.\n");
+				}
 				break;
 
 			}
 			break;
 
-		case 'f' :	/* FatFs test command */
+		case L'f' :	/* FatFs test command */
 			switch (*ptr++) {	/* Branch by secondary command character */
 
-			case 'i' :	/* fi <ld#> [<mount>] - Force initialized the logical drive */
+			case L'i' :	/* fi <ld#> [<mount>] - Force initialized the logical drive */
 				if (!xatoi(&ptr, &p1) || (UINT)p1 > 9) break;
 				if (!xatoi(&ptr, &p2)) p2 = 0;
-				_stprintf(ptr, _T("%d:"), p1);
-				put_rc(f_mount(&FatFs[p1], ptr, (BYTE)p2));
+				swprintf(ptr, LINE_LEN, L"%d:", p1);
+				put_rc(f_mount(&FatFs[p1], ws2ts(ptr), (BYTE)p2));
 				break;
 
-			case 's' :	/* fs [<path>] - Show logical drive status */
+			case L's' :	/* fs [<path>] - Show logical drive status */
 				while (*ptr == ' ') ptr++;
 				ptr2 = ptr;
-#if _FS_READONLY
-				res = f_opendir(&dir, ptr);
-				if (res) {
-					fs = dir.fs;
+#if FF_FS_READONLY
+				fr = f_opendir(&dir, ts2ws(ptr));
+				if (fr == FR_OK) {
+					fs = dir.obj.fs;
 					f_closedir(&dir);
 				}
 #else
-				res = f_getfree(ptr, (DWORD*)&p1, &fs);
+				fr = f_getfree(ws2ts(ptr), (DWORD*)&p1, &fs);
 #endif
-				if (res) { put_rc(res); break; }
-				_tprintf(_T("FAT type = FAT%u\nNumber of FATs = %u\n"), ft[fs->fs_type & 3], fs->n_fats);
-				_tprintf(_T("Cluster size = %u sectors, %lu bytes\n"),
-#if _MAX_SS != 512
-					fs->csize, (DWORD)fs->csize * fs->ssize);
+				if (fr) { put_rc(fr); break; }
+				zprintf(L"FAT type = %s\n", ft[fs->fs_type]);
+				zprintf(L"Cluster size = %lu bytes\n",
+#if FF_MAX_SS != FF_MIN_SS
+					(DWORD)fs->csize * fs->ssize);
 #else
-					fs->csize, (DWORD)fs->csize * 512);
+					(DWORD)fs->csize * FF_MAX_SS);
 #endif
-				if (fs->fs_type != FS_FAT32) _tprintf(_T("Root DIR entries = %u\n"), fs->n_rootdir);
-				_tprintf(_T("Sectors/FAT = %lu\nNumber of clusters = %lu\nVolume start sector = %lu\nFAT start sector = %lu\nRoot DIR start %s = %lu\nData start sector = %lu\n\n"),
-					fs->fsize, fs->n_fatent - 2, fs->volbase, fs->fatbase, fs->fs_type == FS_FAT32 ? _T("cluster") : _T("sector"), fs->dirbase, fs->database);
-#if _USE_LABEL
-				res = f_getlabel(ptr2, pool, &dw);
-				if (res) { put_rc(res); break; }
-				_tprintf(pool[0] ? _T("Volume name is %s\n") : _T("No volume label\n"), pool);
-				_tprintf(_T("Volume S/N is %04X-%04X\n"), dw >> 16, dw & 0xFFFF);
+				if (fs->fs_type < FS_FAT32) zprintf(L"Root DIR entries = %u\n", fs->n_rootdir);
+				zprintf(L"Sectors/FAT = %lu\nNumber of FATs = %u\nNumber of clusters = %lu\nVolume start sector = %lu\nFAT start sector = %lu\nRoot DIR start %s = %lu\nData start sector = %lu\n\n",
+					fs->fsize, fs->n_fats, fs->n_fatent - 2, fs->volbase, fs->fatbase, fs->fs_type >= FS_FAT32 ? L"cluster" : L"sector", fs->dirbase, fs->database);
+#if FF_USE_LABEL
+				fr = f_getlabel(ws2ts(ptr2), tpool, &dw);
+				if (fr) { put_rc(fr); break; }
+				if (tpool[0]) {
+					zprintf(L"Volume name is %s\n", ts2ws(tpool));
+				} else {
+					zprintf(L"No volume label\n");
+				}
+				zprintf(L"Volume S/N is %04X-%04X\n", dw >> 16, dw & 0xFFFF);
 #endif
-				_tprintf(_T("..."));
+				zprintf(L"...");
 				AccSize = AccFiles = AccDirs = 0;
-				res = scan_files(ptr);
-				if (res) { put_rc(res); break; }
+				fr = scan_files(ptr);
+				if (fr) { put_rc(fr); break; }
 				p2 = (fs->n_fatent - 2) * fs->csize;
 				p3 = p1 * fs->csize;
-#if _MAX_SS != 512
+#if FF_MAX_SS != FF_MIN_SS
 				p2 *= fs->ssize / 512;
 				p3 *= fs->ssize / 512;
 #endif
 				p2 /= 2;
 				p3 /= 2;
-				_tprintf(_T("\r%u files, %I64u bytes.\n%u folders.\n%lu KiB total disk space.\n"),
+				zprintf(L"\r%u files, %llu bytes.\n%u folders.\n%lu KiB total disk space.\n",
 						AccFiles, AccSize, AccDirs, p2);
-#if !FS_READONLY
-				_tprintf(_T("%lu KiB available.\n"), p3);
+#if !FF_FS_READONLY
+				zprintf(L"%lu KiB available.\n", p3);
 #endif
 				break;
 
-			case 'l' :	/* fl [<path>] - Directory listing */
-				while (*ptr == ' ') ptr++;
-				res = f_opendir(&dir, ptr);
-				if (res) { put_rc(res); break; }
+			case L'l' :	/* fl [<path>] - Directory listing */
+				while (*ptr == L' ') ptr++;
+				fr = f_opendir(&dir, ws2ts(ptr));
+				if (fr) { put_rc(fr); break; }
 				AccSize = s1 = s2 = 0;
 				for(;;) {
-					res = f_readdir(&dir, &Finfo);
-					if ((res != FR_OK) || !Finfo.fname[0]) break;
+					fr = f_readdir(&dir, &Finfo);
+					if ((fr != FR_OK) || !Finfo.fname[0]) break;
 					if (Finfo.fattrib & AM_DIR) {
 						s2++;
 					} else {
 						s1++; AccSize += Finfo.fsize;
 					}
-					_tprintf(_T("%c%c%c%c%c %u/%02u/%02u %02u:%02u %9lu  %s"),
-							(Finfo.fattrib & AM_DIR) ? 'D' : '-',
-							(Finfo.fattrib & AM_RDO) ? 'R' : '-',
-							(Finfo.fattrib & AM_HID) ? 'H' : '-',
-							(Finfo.fattrib & AM_SYS) ? 'S' : '-',
-							(Finfo.fattrib & AM_ARC) ? 'A' : '-',
+					zprintf(L"%c%c%c%c%c %u/%02u/%02u %02u:%02u %10llu  ",
+							(Finfo.fattrib & AM_DIR) ? L'D' : L'-',
+							(Finfo.fattrib & AM_RDO) ? L'R' : L'-',
+							(Finfo.fattrib & AM_HID) ? L'H' : L'-',
+							(Finfo.fattrib & AM_SYS) ? L'S' : L'-',
+							(Finfo.fattrib & AM_ARC) ? L'A' : L'-',
 							(Finfo.fdate >> 9) + 1980, (Finfo.fdate >> 5) & 15, Finfo.fdate & 31,
-							(Finfo.ftime >> 11), (Finfo.ftime >> 5) & 63, Finfo.fsize, Finfo.fname);
-#if _USE_LFN
-					for (p2 = _tcslen(Finfo.fname); p2 < 12; p2++) _tprintf(_T(" "));
-					_tprintf(_T("  ")); 
-					put_uni(LFName);
+							(Finfo.ftime >> 11), (Finfo.ftime >> 5) & 63, (QWORD)Finfo.fsize);
+#if FF_USE_LFN && FF_USE_FIND == 2
+					zprintf(L"%-12s  ", ts2ws(Finfo.altname));
 #endif
-					_tprintf(_T("\n"));
+					zprintf(L"%s\n", ts2ws(Finfo.fname));
 				}
 				f_closedir(&dir);
-				_tprintf(_T("%4u File(s),%11I64u bytes total\n%4u Dir(s)"), s1, AccSize, s2);
-				if (f_getfree(ptr, (DWORD*)&p1, &fs) == FR_OK)
-					_tprintf(_T(",%12I64u bytes free\n"), (LONGLONG)p1 * fs->csize * 512);
+				zprintf(L"%4u File(s),%11llu bytes total\n%4u Dir(s)", s1, AccSize, s2);
+#if !FF_FS_READONLY
+				if (f_getfree(ws2ts(ptr), (DWORD*)&p1, &fs) == FR_OK) {
+					zprintf(L",%12llu bytes free", (QWORD)p1 * fs->csize * 512);
+				}
+#endif
+				zprintf(L"\n");
 				break;
+#if FF_USE_FIND
+			case L'L' :	/* fL <path> <pattern> - Directory search */
+				while (*ptr == L' ') ptr++;
+				ptr2 = ptr;
+				while (*ptr != L' ') ptr++;
+				*ptr++ = 0;
+				fr = f_findfirst(&dir, &Finfo, ws2ts(ptr2), ws2ts(ptr));
+				while (fr == FR_OK && Finfo.fname[0]) {
+#if FF_USE_LFN && FF_USE_FIND == 2
+					zprintf(L"%-12s  ", ts2ws(Finfo.altname));
+#endif
+					zprintf(L"%s\n", ts2ws(Finfo.fname));
+					fr = f_findnext(&dir, &Finfo);
+				}
+				if (fr) put_rc(fr);
 
-			case 'o' :	/* fo <mode> <file> - Open a file */
+				f_closedir(&dir);
+				break;
+#endif
+			case L'o' :	/* fo <mode> <file> - Open a file */
 				if (!xatoi(&ptr, &p1)) break;
-				while (*ptr == ' ') ptr++;
-				put_rc(f_open(&file[0], ptr, (BYTE)p1));
+				while (*ptr == L' ') ptr++;
+				fr = f_open(&file[0], ws2ts(ptr), (BYTE)p1);
+				put_rc(fr);
 				break;
 
-			case 'c' :	/* fc - Close a file */
+			case L'c' :	/* fc - Close a file */
 				put_rc(f_close(&file[0]));
 				break;
 
-			case 'r' :	/* fr <len> - read file */
+			case L'r' :	/* fr <len> - read file */
 				if (!xatoi(&ptr, &p1)) break;
 				p2 =0;
 				while (p1) {
-					if ((UINT)p1 >= sizeof Buff) {
+					if (p1 >= sizeof Buff) {
 						cnt = sizeof Buff; p1 -= sizeof Buff;
 					} else {
 						cnt = p1; p1 = 0;
 					}
-					res = f_read(&file[0], Buff, cnt, &s2);
-					if (res != FR_OK) { put_rc(res); break; }
+					fr = f_read(&file[0], Buff, cnt, &s2);
+					if (fr != FR_OK) { put_rc(fr); break; }
 					p2 += s2;
 					if (cnt != s2) break;
 				}
-				_tprintf(_T("%lu bytes read.\n"), p2);
+				zprintf(L"%lu bytes read.\n", p2);
 				break;
 
-			case 'd' :	/* fd <len> - read and dump file from current fp */
+			case L'd' :	/* fd <len> - read and dump file from current fp */
 				if (!xatoi(&ptr, &p1)) p1 = 128;
-				ofs = file[0].fptr;
+				ofs = (DWORD)file[0].fptr;
 				while (p1) {
-					if ((UINT)p1 >= 16) { cnt = 16; p1 -= 16; }
-					else 				{ cnt = p1; p1 = 0; }
-					res = f_read(&file[0], Buff, cnt, &cnt);
-					if (res != FR_OK) { put_rc(res); break; }
+					if (p1 >= 16) { cnt = 16; p1 -= 16; }
+					else 		  { cnt = p1; p1 = 0; }
+					fr = f_read(&file[0], Buff, cnt, &cnt);
+					if (fr != FR_OK) { put_rc(fr); break; }
 					if (!cnt) break;
 					put_dump(Buff, ofs, cnt);
 					ofs += 16;
 				}
 				break;
 
-			case 'e' :	/* fe <ofs> - Seek file pointer */
-				if (!xatoi(&ptr, &p1)) break;
-				res = f_lseek(&file[0], p1);
-				put_rc(res);
-				if (res == FR_OK)
-					_tprintf(_T("fptr = %lu(0x%lX)\n"), file[0].fptr, file[0].fptr);
+			case L'e' :	/* fe <ofs> - Seek file pointer */
+				if (!xatoll(&ptr, &px)) break;
+				fr = f_lseek(&file[0], (FSIZE_t)px);
+				put_rc(fr);
+				if (fr == FR_OK) {
+					zprintf(L"fptr = %llu(0x%llX)\n", (QWORD)file[0].fptr, (QWORD)file[0].fptr);
+				}
 				break;
-#if _USE_FASTSEEK
-			case 'E' :	/* fE - Enable fast seek and initialize cluster link map table */
+#if FF_USE_FASTSEEK
+			case L'E' :	/* fE - Enable fast seek and initialize cluster link map table */
 				file[0].cltbl = SeekTbl;			/* Enable fast seek (set address of buffer) */
-				SeekTbl[0] = sizeof SeekTbl / sizeof SeekTbl[0];	/* Buffer size */
-				res = f_lseek(&file[0], CREATE_LINKMAP);	/* Create link map table */
-				put_rc(res);
-				if (res == FR_OK) {
-					_tprintf(_T("%u clusters, "), (file[0].fsize + 1) );
-					_tprintf((SeekTbl[0] > 4) ? _T("fragmented in %d.\n") : _T("contiguous.\n"), SeekTbl[0] / 2 - 1);
-					_tprintf(_T("%u items used.\n"), SeekTbl[0]);
+				SeekTbl[0] = sizeof SeekTbl / sizeof *SeekTbl;	/* Buffer size */
+				fr = f_lseek(&file[0], CREATE_LINKMAP);	/* Create link map table */
+				put_rc(fr);
+				if (fr == FR_OK) {
+					zprintf((SeekTbl[0] > 4) ? L"fragmented in %d.\n" : L"contiguous.\n", SeekTbl[0] / 2 - 1);
+					zprintf(L"%u items used.\n", SeekTbl[0]);
 
 				}
-				if (res == FR_NOT_ENOUGH_CORE) {
-					_tprintf(_T("%u items required to create the link map table.\n"), SeekTbl[0]);
+				if (fr == FR_NOT_ENOUGH_CORE) {
+					zprintf(L"%u items required to create the link map table.\n", SeekTbl[0]);
 				}
 				break;
-#endif	/* _USE_FASTSEEK */
-#if _FS_RPATH >= 1
-			case 'g' :	/* fg <path> - Change current directory */
-				while (*ptr == ' ') ptr++;
-				put_rc(f_chdir(ptr));
+#endif	/* FF_USE_FASTSEEK */
+#if FF_FS_RPATH >= 1
+			case L'g' :	/* fg <path> - Change current directory */
+				while (*ptr == L' ') ptr++;
+				put_rc(f_chdir(ws2ts(ptr)));
 				break;
-#if _VOLUMES >= 2
-			case 'j' :	/* fj <path> - Change current drive */
-				while (*ptr == ' ') ptr++;
-				put_rc(f_chdrive(ptr));
+#if FF_VOLUMES >= 2
+			case L'j' :	/* fj <path> - Change current drive */
+				while (*ptr == L' ') ptr++;
+				put_rc(f_chdrive(ws2ts(ptr)));
 				break;
 #endif
-#if _FS_RPATH >= 2
-			case 'q' :	/* fq - Show current dir path */
-				res = f_getcwd(Line, 256);
-				if (res) {
-					put_rc(res);
+#if FF_FS_RPATH >= 2
+			case L'q' :	/* fq - Show current dir path */
+				fr = f_getcwd((TCHAR*)Line, 256);
+				if (fr) {
+					put_rc(fr);
 				} else {
-					WriteConsole(hCon, Line, _tcslen(Line), &p1, NULL);
-					_tprintf(_T("\n"));
+					zprintf(L"%s\n", ws2ts(Line));
 				}
 				break;
 #endif
 #endif
-#if !_FS_READONLY
-			case 'w' :	/* fw <len> <val> - write file */
+#if FF_USE_FORWARD
+			case L'f' :	/* ff <len> - Forward data */
+				if (!xatoi(&ptr, &p1)) break;
+				fr = f_forward(&file[0], forward, p1, &s1);
+				put_rc(fr);
+				if (fr == FR_OK) zprintf(L"\n%u bytes tranferred.\n", s1);
+				break;
+#endif
+#if !FF_FS_READONLY
+			case L'w' :	/* fw <len> <val> - Write file */
 				if (!xatoi(&ptr, &p1) || !xatoi(&ptr, &p2)) break;
-				memset(Buff, (BYTE)p2, sizeof Buff);
+				memset(Buff, p2, sizeof Buff);
 				p2 = 0;
 				while (p1) {
-					if ((UINT)p1 >= sizeof Buff) { cnt = sizeof Buff; p1 -= sizeof Buff; }
+					if (p1 >= sizeof Buff) { cnt = sizeof Buff; p1 -= sizeof Buff; }
 					else 				  { cnt = p1; p1 = 0; }
-					res = f_write(&file[0], Buff, cnt, &s2);
-					if (res != FR_OK) { put_rc(res); break; }
+					fr = f_write(&file[0], Buff, cnt, &s2);
+					if (fr != FR_OK) { put_rc(fr); break; }
 					p2 += s2;
 					if (cnt != s2) break;
 				}
-				_tprintf(_T("%lu bytes written.\n"), p2);
+				zprintf(L"%lu bytes written.\n", p2);
 				break;
 
-			case 'v' :	/* fv - Truncate file */
+			case L'v' :	/* fv - Truncate file */
 				put_rc(f_truncate(&file[0]));
 				break;
 
-			case 'n' :	/* fn <name> <new_name> - Change file/dir name */
-				while (*ptr == ' ') ptr++;
-				ptr2 = _tcschr(ptr, ' ');
+			case L'n' :	/* fn <name> <new_name> - Change file/dir name */
+				while (*ptr == L' ') ptr++;
+				ptr2 = wcschr(ptr, L' ');
 				if (!ptr2) break;
 				*ptr2++ = 0;
-				while (*ptr2 == ' ') ptr2++;
-				put_rc(f_rename(ptr, ptr2));
+				while (*ptr2 == L' ') ptr2++;
+				put_rc(f_rename(ws2ts(ptr), ws2ts(ptr2)));
 				break;
 
-			case 'u' :	/* fu <name> - Unlink a file/dir */
-				while (*ptr == ' ') ptr++;
-				put_rc(f_unlink(ptr));
+			case L'u' :	/* fu <name> - Unlink a file/dir */
+				while (*ptr == L' ') ptr++;
+				put_rc(f_unlink(ws2ts(ptr)));
 				break;
 
-			case 'k' :	/* fk <name> - Create a directory */
-				while (*ptr == ' ') ptr++;
-				put_rc(f_mkdir(ptr));
+			case L'k' :	/* fk <name> - Create a directory */
+				while (*ptr == L' ') ptr++;
+				put_rc(f_mkdir(ws2ts(ptr)));
 				break;
 
-			case 'a' :	/* fa <atrr> <mask> <name> - Change file/dir attribute */
+			case L'x' : /* fx <src_name> <dst_name> - Copy a file */
+				while (*ptr == L' ') ptr++;
+				ptr2 = wcschr(ptr, L' ');
+				if (!ptr2) break;
+				*ptr2++ = 0;
+				while (*ptr2 == L' ') ptr2++;
+				zprintf(L"Opening \"%s\"", ptr);
+				fr = f_open(&file[0], ws2ts(ptr), FA_OPEN_EXISTING | FA_READ);
+				zprintf(L"\n");
+				if (fr) {
+					put_rc(fr);
+					break;
+				}
+				while (*ptr2 == L' ') ptr2++;
+				zprintf(L"Creating \"%s\"", ptr2);
+				fr = f_open(&file[1], ws2ts(ptr2), FA_CREATE_ALWAYS | FA_WRITE);
+				zprintf(L"\n");
+				if (fr) {
+					put_rc(fr);
+					f_close(&file[0]);
+					break;
+				}
+				zprintf(L"Copying...");
+				p1 = 0;
+				for (;;) {
+					fr = f_read(&file[0], Buff, sizeof Buff, &s1);
+					if (fr || s1 == 0) break;   /* error or eof */
+					fr = f_write(&file[1], Buff, s1, &s2);
+					p1 += s2;
+					if (fr || s2 < s1) break;   /* error or disk full */
+				}
+				zprintf(L"\n");
+				if (fr) put_rc(fr);
+				f_close(&file[0]);
+				f_close(&file[1]);
+				zprintf(L"%lu bytes copied.\n", p1);
+				break;
+#if FF_USE_EXPAND
+			case L'h':	/* fh <fsz> <opt> - Allocate contiguous block */
+				if (!xatoll(&ptr, &px) || !xatoi(&ptr, &p2)) break;
+				fr = f_expand(&file[0], (FSIZE_t)px, (BYTE)p2);
+				put_rc(fr);
+				break;
+#endif
+#if FF_USE_CHMOD
+			case L'a' :	/* fa <atrr> <mask> <name> - Change file/dir attribute */
 				if (!xatoi(&ptr, &p1) || !xatoi(&ptr, &p2)) break;
-				while (*ptr == ' ') ptr++;
-				put_rc(f_chmod(ptr, (BYTE)p1, (BYTE)p2));
+				while (*ptr == L' ') ptr++;
+				put_rc(f_chmod(ws2ts(ptr), (BYTE)p1, (BYTE)p2));
 				break;
 
-			case 't' :	/* ft <year> <month> <day> <hour> <min> <sec> <name> - Change timestamp of a file/dir */
+			case L't' :	/* ft <year> <month> <day> <hour> <min> <sec> <name> - Change timestamp of a file/dir */
 				if (!xatoi(&ptr, &p1) || !xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
 				Finfo.fdate = (WORD)(((p1 - 1980) << 9) | ((p2 & 15) << 5) | (p3 & 31));
 				if (!xatoi(&ptr, &p1) || !xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
 				Finfo.ftime = (WORD)(((p1 & 31) << 11) | ((p2 & 63) << 5) | ((p3 >> 1) & 31));
-				while (_USE_LFN && *ptr == ' ') ptr++;
-				put_rc(f_utime(ptr, &Finfo));
+				while (FF_USE_LFN && *ptr == L' ') ptr++;
+				put_rc(f_utime(ws2ts(ptr), &Finfo));
 				break;
-
-			case 'x' : /* fx <src_name> <dst_name> - Copy a file */
-				while (*ptr == ' ') ptr++;
-				ptr2 = _tcschr(ptr, ' ');
-				if (!ptr2) break;
-				*ptr2++ = 0;
-				while (*ptr2 == ' ') ptr2++;
-				_tprintf(_T("Opening \"%s\""), ptr);
-				res = f_open(&file[0], ptr, FA_OPEN_EXISTING | FA_READ);
-				_tprintf(_T("\n"));
-				if (res) {
-					put_rc(res);
-					break;
-				}
-				while (*ptr2 == ' ') ptr2++;
-				_tprintf(_T("Creating \"%s\""), ptr2);
-				res = f_open(&file[1], ptr2, FA_CREATE_ALWAYS | FA_WRITE);
-				_tprintf(_T("\n"));
-				if (res) {
-					put_rc(res);
-					f_close(&file[0]);
-					break;
-				}
-				_tprintf(_T("Copying..."));
-				p1 = 0;
-				for (;;) {
-					res = f_read(&file[0], Buff, sizeof Buff, &s1);
-					if (res || s1 == 0) break;   /* error or eof */
-					res = f_write(&file[1], Buff, s1, &s2);
-					p1 += s2;
-					if (res || s2 < s1) break;   /* error or disk full */
-				}
-				_tprintf(_T("\n"));
-				if (res) put_rc(res);
-				f_close(&file[0]);
-				f_close(&file[1]);
-				_tprintf(_T("%lu bytes copied.\n"), p1);
+#endif
+#if FF_USE_LABEL
+			case L'b' :	/* fb <name> - Set volume label */
+				while (*ptr == L' ') ptr++;
+				put_rc(f_setlabel(ws2ts(ptr)));
 				break;
-#if _USE_LABEL
-			case 'b' :	/* fb <name> - Set volume label */
-				while (*ptr == ' ') ptr++;
-				put_rc(f_setlabel(ptr));
-				break;
-#endif	/* USE_LABEL */
-#if _USE_MKFS
-			case 'm' :	/* fm <ld#> <partition rule> <cluster size> - Create file system */
+#endif
+#if FF_USE_MKFS
+			case L'm' :	/* fm <ld#> <partition rule> <cluster size> - Create filesystem */
 				if (!xatoi(&ptr, &p1) || (UINT)p1 > 9 || !xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
-				_tprintf(_T("The volume will be formatted. Are you sure? (Y/n)="));
-				get_uni(ptr, 256);
-				if (*ptr != 'Y') break;
-				_stprintf(ptr, _T("%u:"), (UINT)p1);
-				put_rc(f_mkfs(ptr, (BYTE)p2, (UINT)p3));
+				zprintf(L"The volume will be formatted. Are you sure? (Y/n)=");
+				get_line(ptr, 256);
+				if (*ptr != L'Y') break;
+				swprintf(ptr, LINE_LEN, L"%u:", (UINT)p1);
+				put_rc(f_mkfs(ws2ts(ptr), (BYTE)p2, p3, Buff, sizeof Buff));
 				break;
-#if _MULTI_PARTITION
-			case 'p' :	/* fp <pd#> <size1> <size2> <size3> <size4> - Create partition table */
+#if FF_MULTI_PARTITION
+			case L'p' :	/* fp <pd#> <size1> <size2> <size3> <size4> - Create partition table */
 				{
 					DWORD pts[4];
 
@@ -810,17 +1014,33 @@ int _tmain (int argc, TCHAR *argv[])
 					xatoi(&ptr, &pts[1]);
 					xatoi(&ptr, &pts[2]);
 					xatoi(&ptr, &pts[3]);
-					_tprintf(_T("The physical drive %u will be re-partitioned. Are you sure? (Y/n)="), p1);
-					_fgetts(ptr, 256, stdin);
-					if (*ptr != 'Y') break;
-					put_rc(f_fdisk((BYTE)p1, pts, Buff));
+					zprintf(L"The physical drive %u will be re-partitioned. Are you sure? (Y/n)=", p1);
+					get_line(ptr, 256);
+					if (*ptr != L'Y') break;
+					put_rc(f_fdisk(p1, pts, Buff));
 				}
 				break;
-#endif	/* _MULTI_PARTITION */
-#endif	/* _USE_MKFS */
-#endif	/* !_FS_READONLY */
+#endif	/* FF_MULTI_PARTITION */
+#endif	/* FF_USE_MKFS */
+#endif	/* !FF_FS_READONLY */
 			}
 			break;
+#if FF_CODE_PAGE == 0
+			case L'p' :	/* p <codepage> - Set code page */
+			if (!xatoi(&ptr, &p1)) break;
+			w = (WORD)p1;
+			fr = f_setcp(w);
+			put_rc(fr);
+			if (fr == FR_OK) {
+				CodePage = w;
+				if (SetConsoleCP(w) && SetConsoleOutputCP(w)) {
+					zprintf(L"Console CP = %u\n", w);
+				} else {
+					zprintf(L"Failed to change the console CP.\n");
+				}
+			}
+			break;
+#endif
 
 		}
 	}

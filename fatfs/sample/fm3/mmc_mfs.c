@@ -299,7 +299,7 @@ int wait_ready (	/* 1:Ready, 0:Timeout */
 static
 void deselect (void)
 {
-	CS_HIGH();		/* CS = H */
+	CS_HIGH();		/* Set CW# high */
 	xchg_spi(0xFF);	/* Dummy clock (force DO hi-z for multiple slave SPI) */
 
 }
@@ -313,12 +313,12 @@ void deselect (void)
 static
 int select (void)	/* 1:OK, 0:Timeout */
 {
-	CS_LOW();
+	CS_LOW();		/* Set CS# low */
 	xchg_spi(0xFF);	/* Dummy clock (force DO enabled) */
+	if (wait_ready(500)) return 1;	/* Wait for card ready */
 
-	if (wait_ready(500)) return 1;	/* OK */
 	deselect();
-	return 0;	/* Timeout */
+	return 0;		/* Timeout */
 }
 
 
@@ -373,8 +373,7 @@ int xmit_datablock (	/* 1:OK, 0:Failed */
 		xchg_spi(0xFF); xchg_spi(0xFF);	/* Dummy CRC */
 
 		resp = xchg_spi(0xFF);			/* Receive data resp */
-		if ((resp & 0x1F) != 0x05)		/* Function fails if the data packet was not accepted */
-			return 0;
+		if ((resp & 0x1F) != 0x05) return 0;	/* Function fails if the data packet was not accepted */
 	}
 	return 1;
 }
@@ -559,8 +558,9 @@ DRESULT disk_write (
 
 	if (count == 1) {	/* Single sector write */
 		if ((send_cmd(CMD24, sector) == 0)	/* WRITE_BLOCK */
-			&& xmit_datablock(buff, 0xFE))
+			&& xmit_datablock(buff, 0xFE)) {
 			count = 0;
+		}
 	}
 	else {				/* Multiple sector write */
 		if (CardType & CT_SDC) send_cmd(ACMD23, count);	/* Predefine number of sectors */
@@ -569,8 +569,7 @@ DRESULT disk_write (
 				if (!xmit_datablock(buff, 0xFC)) break;
 				buff += 512;
 			} while (--count);
-			if (!xmit_datablock(0, 0xFD))	/* STOP_TRAN token */
-				count = 1;
+			if (!xmit_datablock(0, 0xFD)) count = 1;	/* STOP_TRAN token */
 		}
 	}
 	deselect();
@@ -642,7 +641,7 @@ DRESULT disk_ioctl (
 		}
 		break;
 
-	case CTRL_ERASE_SECTOR :	/* Erase a block of sectors (used when _USE_ERASE == 1) */
+	case CTRL_TRIM :	/* Erase a block of sectors (used when _USE_TRIM == 1) */
 		if (!(CardType & CT_SDC)) break;				/* Check if the card is SDC */
 		if (disk_ioctl(drv, MMC_GET_CSD, csd)) break;	/* Get CSD */
 		if (!(csd[0] >> 6) && !(csd[10] & 0x40)) break;	/* Check if sector erase can be applied to the card */
@@ -650,8 +649,9 @@ DRESULT disk_ioctl (
 		if (!(CardType & CT_BLOCK)) {
 			st *= 512; ed *= 512;
 		}
-		if (send_cmd(CMD32, st) == 0 && send_cmd(CMD33, ed) == 0 && send_cmd(CMD38, 0) == 0 && wait_ready(30000))	/* Erase sector block */
+		if (send_cmd(CMD32, st) == 0 && send_cmd(CMD33, ed) == 0 && send_cmd(CMD38, 0) == 0 && wait_ready(30000)) {	/* Erase sector block */
 			res = RES_OK;	/* FatFs does not check result of this command */
+		}
 		break;
 
 	/* Following commands are not used by FatFs module */
@@ -662,15 +662,15 @@ DRESULT disk_ioctl (
 		break;
 
 	case MMC_GET_CSD :		/* Read CSD (16 bytes) */
-		if (send_cmd(CMD9, 0) == 0		/* READ_CSD */
-			&& rcvr_datablock(ptr, 16))
+		if (send_cmd(CMD9, 0) == 0 && rcvr_datablock(ptr, 16)) {	/* READ_CSD */
 			res = RES_OK;
+		}
 		break;
 
 	case MMC_GET_CID :		/* Read CID (16 bytes) */
-		if (send_cmd(CMD10, 0) == 0		/* READ_CID */
-			&& rcvr_datablock(ptr, 16))
+		if (send_cmd(CMD10, 0) == 0 && rcvr_datablock(ptr, 16)) {	/* READ_CID */
 			res = RES_OK;
+		}
 		break;
 
 	case MMC_GET_OCR :		/* Read OCR (4 bytes) */
@@ -683,8 +683,7 @@ DRESULT disk_ioctl (
 	case MMC_GET_SDSTAT :	/* Read SD status (64 bytes) */
 		if (send_cmd(ACMD13, 0) == 0) {	/* SD_STATUS */
 			xchg_spi(0xFF);
-			if (rcvr_datablock(ptr, 64))
-				res = RES_OK;
+			if (rcvr_datablock(ptr, 64)) res = RES_OK;
 		}
 		break;
 
@@ -718,14 +717,16 @@ void disk_timerproc (void)
 	if (n) Timer2 = --n;
 
 	s = Stat;
-	if (MMC_WP)	/* Write protected */
+	if (MMC_WP) {	/* Write protected */
 		s |= STA_PROTECT;
-	else		/* Write enabled */
+	} else {		/* Write enabled */
 		s &= ~STA_PROTECT;
-	if (MMC_CD)	/* Card is in socket */
+	}
+	if (MMC_CD) {	/* Card is in socket */
 		s &= ~STA_NODISK;
-	else		/* Socket empty */
+	} else {		/* Socket empty */
 		s |= (STA_NODISK | STA_NOINIT);
+	}
 	Stat = s;
 }
 
