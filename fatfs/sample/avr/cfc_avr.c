@@ -13,6 +13,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include "ff.h"
 #include "diskio.h"
 #include "cfc_avr.h"
 
@@ -65,16 +66,13 @@
 
 ---------------------------------------------------------------------------*/
 
-static
-volatile DSTATUS Stat = STA_NOINIT;	/* Disk status */
+static volatile DSTATUS Stat = STA_NOINIT;	/* Disk status */
 
-static
-volatile UINT Timer;		/* 100Hz decrement timer */
+static volatile UINT Timer;		/* 100Hz decrement timer */
 
 
 
-static
-void delay_ms (
+static void delay_ms (
 	UINT ms
 )
 {
@@ -91,8 +89,7 @@ void delay_ms (
 /* Socket Power Controls  (Platform dependent)                           */
 /*-----------------------------------------------------------------------*/
 
-static
-void power_on (void)
+static void power_on (void)
 {
 	/* Socket power on */
 	{
@@ -111,8 +108,7 @@ void power_on (void)
 }
 
 
-static
-void power_off (void)
+static void power_off (void)
 {
 	Stat |= STA_NOINIT;
 #if 0
@@ -129,8 +125,7 @@ void power_off (void)
 /* Read ATA register (Platform dependent)                                */
 /*-----------------------------------------------------------------------*/
 
-static
-BYTE read_ata (
+static BYTE read_ata (
 	BYTE reg			/* Register to be read */
 )
 {
@@ -147,8 +142,7 @@ BYTE read_ata (
 }
 
 
-static
-void read_ata_block (
+static void read_ata_block (
 	BYTE *buff		/* Buffer to store read data (512 bytes) */
 )
 {
@@ -181,8 +175,7 @@ void read_ata_block (
 }
 
 
-static
-void read_ata_part (
+static void read_ata_part (
 	BYTE *buf,
 	BYTE ofs,
 	BYTE nw
@@ -215,8 +208,7 @@ void read_ata_part (
 /* Write data to ATA register (Platform dependent)                       */
 /*-----------------------------------------------------------------------*/
 
-static
-void write_ata (
+static void write_ata (
 	BYTE reg,		/* Register to be written */
 	BYTE dat		/* Data to be written */
 )
@@ -232,8 +224,8 @@ void write_ata (
 }
 
 
-static
-void write_ata_block (
+#if !FF_FS_READONLY
+static void write_ata_block (
 	const BYTE *buff	/* Data to write (512 bytes) */
 )
 {
@@ -258,15 +250,14 @@ void write_ata_block (
 	DAT_PORT = 0xFF;		/* Set D0..D7 as input (pull-up) */
 	DAT_DDR = 0;
 }
-
+#endif
 
 
 /*-----------------------------------------------------------------------*/
 /* Wait for BSY goes 0 and the bit goes 1                                */
 /*-----------------------------------------------------------------------*/
 
-static
-int wait_stat (	/* 0:Timeout or ERR bit goes 1 */
+static int wait_stat (	/* 0:Timeout or ERR bit goes 1 */
 	UINT ms,	/* Timeout in unit of ms */
 	BYTE bit	/* Bit mask to wait for */
 )
@@ -291,8 +282,7 @@ int wait_stat (	/* 0:Timeout or ERR bit goes 1 */
 /* Issue Read/Write command to the drive                                 */
 /*-----------------------------------------------------------------------*/
 
-static
-int issue_rwcmd (
+static int issue_rwcmd (
 	BYTE cmd,		/* CMD_READ or CMD_WRITE */
 	DWORD sector,	/* Start sector (28-bit LBA) */
 	BYTE count		/* 1..255, 0:256 */
@@ -374,15 +364,18 @@ DSTATUS cf_disk_status (void)
 
 DRESULT cf_disk_read (
 	BYTE *buff,		/* Data buffer to store read data */
-	DWORD sector,	/* Sector number (LBA) */
+	LBA_t sector,	/* Sector number (LBA) */
 	UINT count		/* Sector count (1..256) */
 )
 {
-	if (count == 0 || count > 256 || sector >= 0x10000000) return RES_PARERR;
+	DWORD sector32 = (DWORD)sector;
+
+
+	if (count == 0 || count > 256 || sector32 >= 0x10000000) return RES_PARERR;
 	if (Stat & STA_NOINIT) return RES_NOTRDY;
 
 	/* Issue Read Setor(s) command */
-	if (!issue_rwcmd(CMD_READ, sector, (BYTE)count)) return RES_ERROR;
+	if (!issue_rwcmd(CMD_READ, sector32, (BYTE)count)) return RES_ERROR;
 
 	/* Receive data blocks */
 	do {
@@ -402,18 +395,20 @@ DRESULT cf_disk_read (
 /* Write Sector(s)                                                       */
 /*-----------------------------------------------------------------------*/
 
-#if _USE_WRITE
+#if !FF_FS_READONLY
 DRESULT cf_disk_write (
 	const BYTE *buff,	/* Data to be written */
-	DWORD sector,		/* Sector number (LBA) */
+	LBA_t sector,		/* Sector number (LBA) */
 	UINT count			/* Sector count (1..256) */
 )
 {
-	if (count == 0 || count > 256 || sector >= 0x10000000) return RES_PARERR;
+	DWORD sector32 = (DWORD)sector;
+
+	if (count == 0 || count > 256 || sector32 >= 0x10000000) return RES_PARERR;
 	if (Stat & STA_NOINIT) return RES_NOTRDY;
 
 	/* Issue Write Setor(s) command */
-	if (!issue_rwcmd(CMD_WRITE, sector, (BYTE)count)) return RES_ERROR;
+	if (!issue_rwcmd(CMD_WRITE, sector32, (BYTE)count)) return RES_ERROR;
 
 	/* Send data blocks */
 	do {
@@ -460,6 +455,7 @@ DRESULT cf_disk_ioctl (
 		return RES_OK;
 
 	case GET_SECTOR_COUNT :
+		for (n = 0; n < sizeof (LBA_t); ptr[n++] = 0) ;
 		ofs = 60; w = 2; n = 0;
 		break;
 

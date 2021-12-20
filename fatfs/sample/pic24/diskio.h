@@ -2,6 +2,7 @@
 /  Low level disk interface modlue include file   (C)ChaN, 2014
 /-----------------------------------------------------------------------*/
 
+#include "ff.h"
 #ifndef _DISKIO_DEFINED
 #define _DISKIO_DEFINED
 
@@ -11,9 +12,6 @@ extern "C" {
 
 #define _USE_WRITE	1	/* 1: Enable disk_write function */
 #define _USE_IOCTL	1	/* 1: Enable disk_ioctl fucntion */
-
-#include "integer.h"
-
 
 /* Status of Disk Functions */
 typedef BYTE	DSTATUS;
@@ -34,9 +32,9 @@ typedef enum {
 
 DSTATUS disk_initialize (BYTE pdrv);
 DSTATUS disk_status (BYTE pdrv);
-DRESULT disk_read (BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
+DRESULT disk_read (BYTE pdrv, BYTE* buff, LBA_t sector, UINT count);
 #if	_USE_WRITE
-DRESULT disk_write (BYTE pdrv, const BYTE* buff, DWORD sector, UINT count);
+DRESULT disk_write (BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count);
 #endif
 #if	_USE_IOCTL
 DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
@@ -53,11 +51,11 @@ void disk_timerproc (void);
 /* Command code for disk_ioctrl fucntion */
 
 /* Generic command (Used by FatFs) */
-#define CTRL_SYNC			0	/* Complete pending write process (needed at _FS_READONLY == 0) */
-#define GET_SECTOR_COUNT	1	/* Get media size (needed at _USE_MKFS == 1) */
-#define GET_SECTOR_SIZE		2	/* Get sector size (needed at _MAX_SS != _MIN_SS) */
-#define GET_BLOCK_SIZE		3	/* Get erase block size (needed at _USE_MKFS == 1) */
-#define CTRL_TRIM			4	/* Inform device that the data on the block of sectors is no longer used (needed at _USE_TRIM == 1) */
+#define CTRL_SYNC			0	/* Complete pending write process (needed at FF_FS_READONLY == 0) */
+#define GET_SECTOR_COUNT	1	/* Get media size (needed at FF_USE_MKFS == 1) */
+#define GET_SECTOR_SIZE		2	/* Get sector size (needed at FF_MAX_SS != FF_MIN_SS) */
+#define GET_BLOCK_SIZE		3	/* Get erase block size (needed at FF_USE_MKFS == 1) */
+#define CTRL_TRIM			4	/* Inform device that the data on the block of sectors is no longer used (needed at FF_USE_TRIM == 1) */
 
 /* Generic command (Not used by FatFs) */
 #define CTRL_FORMAT			5	/* Create physical format on the media */
@@ -66,13 +64,17 @@ void disk_timerproc (void);
 #define CTRL_LOCK			8	/* Lock media removal */
 #define CTRL_UNLOCK			9	/* Unlock media removal */
 #define CTRL_EJECT			10	/* Eject media */
+#define CTRL_GET_SMART		11	/* Read SMART information */
 
 /* MMC/SDC specific command (Not used by FatFs) */
 #define MMC_GET_TYPE		50	/* Get card type */
-#define MMC_GET_CSD			51	/* Get CSD */
-#define MMC_GET_CID			52	/* Get CID */
-#define MMC_GET_OCR			53	/* Get OCR */
-#define MMC_GET_SDSTAT		54	/* Get SD status */
+#define MMC_GET_CSD			51	/* Read CSD */
+#define MMC_GET_CID			52	/* Read CID */
+#define MMC_GET_OCR			53	/* Read OCR */
+#define MMC_GET_SDSTAT		54	/* Read SD status */
+#define ISDIO_READ			55	/* Read data form SD iSDIO register */
+#define ISDIO_WRITE			56	/* Write data to SD iSDIO register */
+#define ISDIO_MRITE			57	/* Masked write data to SD iSDIO register */
 
 /* ATA/CF specific command (Not used by FatFs) */
 #define ATA_GET_REV			60	/* Get F/W revision */

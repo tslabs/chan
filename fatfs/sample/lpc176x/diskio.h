@@ -1,20 +1,18 @@
 /*-----------------------------------------------------------------------
-/  Low level disk interface modlue include file   (C)ChaN, 2015
+/  Low level disk interface modlue include file   (C)ChaN, 2020
 /-----------------------------------------------------------------------*/
 
-#ifndef _DISKIO_DEFINED
-#define _DISKIO_DEFINED
+#ifndef DISKIO_DEFINED
+#define DISKIO_DEFINED
+#include "ff.h"
+
+#define DISKIO_ISDIO	0	/* 1: Enable iSDIO control fucntion */
+#define	VIRTUAL_DISK	1	/* PD# associated with disk image file (set 0 to disable virtual disk feature) */
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define _DISKIO_WRITE	1	/* 1: Enable disk_write function */
-#define _DISKIO_IOCTL	1	/* 1: Enable disk_ioctl fucntion */
-#define _DISKIO_ISDIO	0	/* 1: Enable iSDIO control fucntion */
-
-#include "integer.h"
-
 
 /* Status of Disk Functions */
 typedef BYTE	DSTATUS;
@@ -29,7 +27,7 @@ typedef enum {
 } DRESULT;
 
 
-#if	_DISKIO_ISDIO
+#if	DISKIO_ISDIO
 /* Command structure for iSDIO ioctl command */
 typedef struct {
 	BYTE	func;	/* Function number: 0..7 */
@@ -46,13 +44,9 @@ typedef struct {
 
 DSTATUS disk_initialize (BYTE pdrv);
 DSTATUS disk_status (BYTE pdrv);
-DRESULT disk_read (BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
-#if	_DISKIO_WRITE
-DRESULT disk_write (BYTE pdrv, const BYTE* buff, DWORD sector, UINT count);
-#endif
-#if	_DISKIO_IOCTL
+DRESULT disk_read (BYTE pdrv, BYTE* buff, LBA_t sector, UINT count);
+DRESULT disk_write (BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count);
 DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
-#endif
 
 
 /* Disk Status Bits (DSTATUS) */
@@ -64,11 +58,11 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 /* Command code for disk_ioctrl fucntion */
 
 /* Generic command (Used by FatFs) */
-#define CTRL_SYNC			0	/* Complete pending write process (needed at _FS_READONLY == 0) */
-#define GET_SECTOR_COUNT	1	/* Get media size (needed at _USE_MKFS == 1) */
-#define GET_SECTOR_SIZE		2	/* Get sector size (needed at _MAX_SS != _MIN_SS) */
-#define GET_BLOCK_SIZE		3	/* Get erase block size (needed at _USE_MKFS == 1) */
-#define CTRL_TRIM			4	/* Inform device that the data on the block of sectors is no longer used (needed at _USE_TRIM == 1) */
+#define CTRL_SYNC			0	/* Complete pending write process (needed at FF_FS_READONLY == 0) */
+#define GET_SECTOR_COUNT	1	/* Get media size (needed at FF_USE_MKFS == 1) */
+#define GET_SECTOR_SIZE		2	/* Get sector size (needed at FF_MAX_SS != FF_MIN_SS) */
+#define GET_BLOCK_SIZE		3	/* Get erase block size (needed at FF_USE_MKFS == 1) */
+#define CTRL_TRIM			4	/* Inform device that the data on the block of sectors is no longer used (needed at FF_USE_TRIM == 1) */
 
 /* Generic command (Not used by FatFs) */
 #define CTRL_FORMAT			5	/* Create physical format on the media */
@@ -77,13 +71,14 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 #define CTRL_LOCK			8	/* Lock media removal */
 #define CTRL_UNLOCK			9	/* Unlock media removal */
 #define CTRL_EJECT			10	/* Eject media */
+#define CTRL_GET_SMART		11	/* Read SMART information */
 
 /* MMC/SDC specific ioctl command (Not used by FatFs) */
 #define MMC_GET_TYPE		50	/* Get card type */
-#define MMC_GET_CSD			51	/* Get CSD */
-#define MMC_GET_CID			52	/* Get CID */
-#define MMC_GET_OCR			53	/* Get OCR */
-#define MMC_GET_SDSTAT		54	/* Get SD status */
+#define MMC_GET_CSD			51	/* Read CSD */
+#define MMC_GET_CID			52	/* Read CID */
+#define MMC_GET_OCR			53	/* Read OCR */
+#define MMC_GET_SDSTAT		54	/* Read SD status */
 #define ISDIO_READ			55	/* Read data form SD iSDIO register */
 #define ISDIO_WRITE			56	/* Write data to SD iSDIO register */
 #define ISDIO_MRITE			57	/* Masked write data to SD iSDIO register */
@@ -93,13 +88,18 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 #define ATA_GET_MODEL		61	/* Get model name */
 #define ATA_GET_SN			62	/* Get serial number */
 
+/* Disk image feature (VIRTUAL_DISK >= 1) */
+#define OPEN_VIRTUAL_DISK	90
+
 
 /* MMC card type flags (MMC_GET_TYPE) */
-#define CT_MMC		0x01		/* MMC ver 3 */
-#define CT_SD1		0x02		/* SD ver 1 */
-#define CT_SD2		0x04		/* SD ver 2 */
-#define CT_SDC		(CT_SD1|CT_SD2)	/* SD */
-#define CT_BLOCK	0x08		/* Block addressing */
+#define CT_MMC3		0x01		/* MMC ver 3 */
+#define CT_MMC4		0x02		/* MMC ver 4+ */
+#define CT_MMC		0x03		/* MMC */
+#define CT_SDC1		0x04		/* SDC ver 1 */
+#define CT_SDC2		0x08		/* SDC ver 2+ */
+#define CT_SDC		0x0C		/* SDC */
+#define CT_BLOCK	0x10		/* Block addressing */
 
 
 #ifdef __cplusplus

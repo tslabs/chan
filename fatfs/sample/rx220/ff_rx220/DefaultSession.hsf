@@ -26,7 +26,7 @@
 [LANGUAGE]
 "Japanese" 
 [CONFIG_INFO_VD1]
-0 
+1 
 [CONFIG_INFO_VD2]
 0 
 [CONFIG_INFO_VD3]
@@ -56,8 +56,11 @@
 [WINDOW_POSITION_STATE_DATA_VD3]
 [WINDOW_POSITION_STATE_DATA_VD4]
 [WINDOW_Z_ORDER]
-"C:\user\Prj_Renesas\ff_rx220\ff_rx220\ffconf.h" 
 "C:\user\Prj_Renesas\ff_rx220\ff_rx220\main.c" 
+"C:\user\Prj_Renesas\ff_rx220\ff_rx220\ff.c" 
+"C:\user\Prj_Renesas\ff_rx220\ff_rx220\mmc_rspi.c" 
+"C:\user\Prj_Renesas\ff_rx220\ff_rx220\ffunicode.c" 
+"C:\user\Prj_Renesas\ff_rx220\ff_rx220\resetprg.c" 
 [TARGET_NAME]
 "" "" -1869938589 
 [STATUSBAR_STATEINFO_VD1]

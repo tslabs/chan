@@ -400,14 +400,14 @@ DSTATUS disk_initialize (
 				}
 				if (tmr && send_cmd(CMD58, 0) == 0) {	/* Check CCS bit in the OCR */
 					rcvr_mmc(buf, 4);
-					ty = (buf[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2;	/* Check if the card SDv2 */
+					ty = (buf[0] & 0x40) ? CT_SDC2 | CT_BLOCK : CT_SDC2;	/* Check if the card SDv2 */
 				}
 			}
 		} else {							/* SDv1 or MMCv3 */
 			if (send_cmd(ACMD41, 0) <= 1) 	{
-				ty = CT_SD1; cmd = ACMD41;	/* SDv1 */
+				ty = CT_SDC1; cmd = ACMD41;	/* SDv1 */
 			} else {
-				ty = CT_MMC; cmd = CMD1;	/* MMCv3 */
+				ty = CT_MMC3; cmd = CMD1;	/* MMCv3 */
 			}
 			for (tmr = 1000; tmr; tmr--) {			/* Wait for the card leaves idle state */
 				if (send_cmd(cmd, 0) == 0) break;
@@ -436,19 +436,20 @@ DSTATUS disk_initialize (
 DRESULT disk_read (
 	BYTE pdrv,		/* Must be 0 */
 	BYTE *buff,		/* Pointer to the data buffer to store read data */
-	DWORD sector,	/* Start sector number (LBA) */
+	LBA_t sector,	/* Start sector number (LBA) */
 	UINT count		/* Sector count (1..128) */
 )
 {
 	BYTE cmd;
+	DWORD sect = (DWORD)sector;
 
 
 	if (disk_status(0) & STA_NOINIT) return RES_NOTRDY;
 	if (!count) return RES_PARERR;
-	if (!(CardType & CT_BLOCK)) sector *= 512;	/* Convert LBA to byte address if needed */
+	if (!(CardType & CT_BLOCK)) sect *= 512;	/* Convert LBA to byte address if needed */
 
 	cmd = count > 1 ? CMD18 : CMD17;			/*  READ_MULTIPLE_BLOCK : READ_SINGLE_BLOCK */
-	if (send_cmd(cmd, sector) == 0) {
+	if (send_cmd(cmd, sect) == 0) {
 		do {
 			if (!rcvr_datablock(buff, 512)) break;
 			buff += 512;
@@ -466,27 +467,29 @@ DRESULT disk_read (
 /* Write Sector(s)                                                       */
 /*-----------------------------------------------------------------------*/
 
-#if _USE_WRITE
 DRESULT disk_write (
 	BYTE pdrv,			/* Must be 0 */
 	const BYTE *buff,	/* Pointer to the data to be written */
-	DWORD sector,		/* Start sector number (LBA) */
+	LBA_t sector,		/* Start sector number (LBA) */
 	UINT count			/* Sector count (1..128) */
 )
 {
+	DWORD sect = (DWORD)sector;
+
+
 	if (disk_status(0) & STA_NOINIT) return RES_NOTRDY;
 	if (!count) return RES_PARERR;
-	if (!(CardType & CT_BLOCK)) sector *= 512;	/* Convert LBA to byte address if needed */
+	if (!(CardType & CT_BLOCK)) sect *= 512;	/* Convert LBA to byte address if needed */
 
 	if (count == 1) {	/* Single block write */
-		if ((send_cmd(CMD24, sector) == 0)	/* WRITE_BLOCK */
+		if ((send_cmd(CMD24, sect) == 0)	/* WRITE_BLOCK */
 			&& xmit_datablock(buff, 0xFE)) {
 			count = 0;
 		}
 	}
 	else {				/* Multiple block write */
 		if (CardType & CT_SDC) send_cmd(ACMD23, count);
-		if (send_cmd(CMD25, sector) == 0) {	/* WRITE_MULTIPLE_BLOCK */
+		if (send_cmd(CMD25, sect) == 0) {	/* WRITE_MULTIPLE_BLOCK */
 			do {
 				if (!xmit_datablock(buff, 0xFC)) break;
 				buff += 512;
@@ -500,14 +503,12 @@ DRESULT disk_write (
 
 	return count ? RES_ERROR : RES_OK;
 }
-#endif
 
 
 /*-----------------------------------------------------------------------*/
 /* Miscellaneous Functions                                               */
 /*-----------------------------------------------------------------------*/
 
-#if _USE_IOCTL
 DRESULT disk_ioctl (
 	BYTE pdrv,	/* Must be 0 */
 	BYTE ctrl,	/* Control code */
@@ -531,11 +532,11 @@ DRESULT disk_ioctl (
 		if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {
 			if ((csd[0] >> 6) == 1) {	/* SDC ver 2.00 */
 				cs = csd[9] + ((WORD)csd[8] << 8) + ((DWORD)(csd[7] & 63) << 16) + 1;
-				*(DWORD*)buff = cs << 10;
+				*(LBA_t*)buff = cs << 10;
 			} else {					/* SDC ver 1.XX or MMC */
 				n = (csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2;
 				cs = (csd[8] >> 6) + ((WORD)csd[7] << 2) + ((WORD)(csd[6] & 3) << 10) + 1;
-				*(DWORD*)buff = cs << (n - 9);
+				*(LBA_t*)buff = cs << (n - 9);
 			}
 			res = RES_OK;
 		}
@@ -554,6 +555,5 @@ DRESULT disk_ioctl (
 
 	return res;
 }
-#endif
 
 

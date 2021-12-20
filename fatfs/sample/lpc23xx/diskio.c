@@ -38,7 +38,7 @@ DSTATUS disk_status (
 DRESULT disk_read (
 	BYTE drv,
 	BYTE* buff,
-	DWORD lba,
+	LBA_t lba,
 	UINT count
 )
 {
@@ -55,7 +55,7 @@ DRESULT disk_read (
 DRESULT disk_write (
 	BYTE drv,
 	const BYTE* buff,
-	DWORD lba,
+	LBA_t lba,
 	UINT count
 )
 {

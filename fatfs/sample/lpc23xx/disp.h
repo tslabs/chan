@@ -14,6 +14,7 @@
 #define TS_WIDTH	26
 #define TS_HEIGHT	13
 
+
 /* RGB pixel data format (Create RGB565 from RGB888) */
 #define RGB16(r,g,b)	(uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | (b) >> 3)
 
@@ -39,6 +40,7 @@ void disp_font_face (const uint8_t *font);
 void disp_font_color (uint32_t color);
 void disp_locate (int col, int row);
 void disp_putc (uint8_t chr);
+#define OLED (void(*)(int))disp_putc
 
 /* File loaders */
 #if _USE_FILE_LOADER

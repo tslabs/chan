@@ -9,7 +9,7 @@
 #include "LPC176x.h"
 
 
-#define STACK_SIZE	2048		/* Size of Main stack (must be multiple of 8) */
+#define STACK_SIZE	3072		/* Size of Main stack (must be multiple of 8) */
 
 #define OSC_SEL		1			/* Oscillator selection = 0:IRC(4MHz), 1:Main, 2:RTC(32768Hz) */
 #define	F_OSC		12000000	/* Oscillator frequency */

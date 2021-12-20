@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------*/
-/* FatFs sample project for Atmel AVR                (C)ChaN, 2017      */
+/* FatFs sample project for Atmel AVR                (C)ChaN, 2018      */
 /*----------------------------------------------------------------------*/
 
 
@@ -28,8 +28,6 @@ FATFS FatFs[2];		/* Filesystem object for each logical drive */
 FIL File[2];		/* File object */
 DIR Dir;			/* Directory object */
 FILINFO Finfo;
-DWORD AccSize;				/* Work register for fs command */
-WORD AccFiles, AccDirs;
 
 BYTE RtcOk;				/* RTC is available */
 volatile UINT Timer;	/* Performance timer (100Hz increment) */
@@ -130,7 +128,10 @@ void get_line (char *buff, int len)
 
 static
 FRESULT scan_files (
-	char* path		/* Pointer to the working buffer with start path */
+	char* path,		/* Pointer to the working buffer with start path */
+	UINT* n_dir,
+	UINT* n_file,
+	DWORD* sz_file
 )
 {
 	DIR dirs;
@@ -141,16 +142,16 @@ FRESULT scan_files (
 	if (fr == FR_OK) {
 		while (((fr = f_readdir(&dirs, &Finfo)) == FR_OK) && Finfo.fname[0]) {
 			if (Finfo.fattrib & AM_DIR) {
-				AccDirs++;
+				(*n_dir)++;
 				i = strlen(path);
 				path[i] = '/'; strcpy(path+i+1, Finfo.fname);
-				fr = scan_files(path);
+				fr = scan_files(path, n_dir, n_file, sz_file);
 				path[i] = 0;
 				if (fr != FR_OK) break;
 			} else {
 //				xprintf(PSTR("%s/%s\n"), path, Finfo.fname);
-				AccFiles++;
-				AccSize += Finfo.fsize;
+				(*n_file)++;
+				*sz_file += Finfo.fsize;
 			}
 		}
 	}
@@ -205,10 +206,12 @@ int main (void)
 	char line[120];
 	char *ptr, *ptr2;
 	long p1, p2, p3;
+	LBA_t lba;
 	FRESULT fr;
 	BYTE b1, *bp;
-	UINT s1, s2, cnt, blen = sizeof Buff;
-	DWORD ofs, sect = 0;
+	UINT s1, s2, cnt, blen = sizeof Buff, acc_dirs, acc_files;
+	DWORD ofs, sect = 0, dw, acc_size;
+	static const char* const fst[] = {"", "FAT12", "FAT16", "FAT32", "exFAT"};
 	FATFS *fs;
 	RTC rtc;
 
@@ -253,12 +256,13 @@ int main (void)
 			case 'd' :	/* dd <pd#> [<sector>] - Dump secrtor */
 				if (!xatoi(&ptr, &p1)) break;
 				if (!xatoi(&ptr, &p2)) p2 = sect;
-				b1 = disk_read((BYTE)p1, Buff, p2, 1);
+				b1 = disk_read((BYTE)p1, Buff, (DWORD)p2, 1);
 				if (b1) { xprintf(PSTR("rc=%d\n"), b1); break; }
-				sect = p2 + 1;
-				xprintf(PSTR("Sector:%lu\n"), p2);
-				for (bp=Buff, ofs = 0; ofs < 0x200; bp+=16, ofs+=16)
+				sect = (DWORD)p2 + 1;
+				xprintf(PSTR("Sector:%lu\n"), (DWORD)p2);
+				for (bp=Buff, ofs = 0; ofs < 0x200; bp += 16, ofs += 16) {
 					put_dump(bp, ofs, 16);
+				}
 				break;
 
 			case 'i' :	/* di <pd#> - Initialize disk */
@@ -268,26 +272,34 @@ int main (void)
 
 			case 's' :	/* ds <pd#> - Show disk status */
 				if (!xatoi(&ptr, &p1)) break;
-				if (disk_ioctl((BYTE)p1, GET_SECTOR_COUNT, &p2) == RES_OK)
-					{ xprintf(PSTR("Drive size: %lu sectors\n"), p2); }
-				if (disk_ioctl((BYTE)p1, GET_BLOCK_SIZE, &p2) == RES_OK)
-					{ xprintf(PSTR("Erase block: %lu sectors\n"), p2); }
-				if (disk_ioctl((BYTE)p1, MMC_GET_TYPE, &b1) == RES_OK)
-					{ xprintf(PSTR("Card type: %u\n"), b1); }
-				if (disk_ioctl((BYTE)p1, MMC_GET_CSD, Buff) == RES_OK)
-					{ xputs(PSTR("CSD:\n")); put_dump(Buff, 0, 16); }
-				if (disk_ioctl((BYTE)p1, MMC_GET_CID, Buff) == RES_OK)
-					{ xputs(PSTR("CID:\n")); put_dump(Buff, 0, 16); }
-				if (disk_ioctl((BYTE)p1, MMC_GET_OCR, Buff) == RES_OK)
-					{ xputs(PSTR("OCR:\n")); put_dump(Buff, 0, 4); }
+				if (disk_ioctl((BYTE)p1, GET_SECTOR_COUNT, &lba) == RES_OK) {
+					xprintf(PSTR("Drive size: %lu sectors\n"), (DWORD)lba);
+				}
+				if (disk_ioctl((BYTE)p1, GET_BLOCK_SIZE, &p2) == RES_OK) {
+					xprintf(PSTR("Erase block: %lu sectors\n"), p2);
+				}
+				if (disk_ioctl((BYTE)p1, MMC_GET_TYPE, &b1) == RES_OK) {
+					xprintf(PSTR("Card type: %u\n"), b1);
+				}
+				if (disk_ioctl((BYTE)p1, MMC_GET_CSD, Buff) == RES_OK) {
+					xputs(PSTR("CSD:\n")); put_dump(Buff, 0, 16);
+				}
+				if (disk_ioctl((BYTE)p1, MMC_GET_CID, Buff) == RES_OK) {
+					xputs(PSTR("CID:\n")); put_dump(Buff, 0, 16);
+				}
+				if (disk_ioctl((BYTE)p1, MMC_GET_OCR, Buff) == RES_OK) {
+					xputs(PSTR("OCR:\n")); put_dump(Buff, 0, 4);
+				}
 				if (disk_ioctl((BYTE)p1, MMC_GET_SDSTAT, Buff) == RES_OK) {
 					xputs(PSTR("SD Status:\n"));
 					for (s1 = 0; s1 < 64; s1 += 16) put_dump(Buff+s1, s1, 16);
 				}
-				if (disk_ioctl((BYTE)p1, ATA_GET_MODEL, line) == RES_OK)
-					{ line[40] = '\0'; xprintf(PSTR("Model: %s\n"), line); }
-				if (disk_ioctl((BYTE)p1, ATA_GET_SN, line) == RES_OK)
-					{ line[20] = '\0'; xprintf(PSTR("S/N: %s\n"), line); }
+				if (disk_ioctl((BYTE)p1, ATA_GET_MODEL, line) == RES_OK) {
+					line[40] = '\0'; xprintf(PSTR("Model: %s\n"), line);
+				}
+				if (disk_ioctl((BYTE)p1, ATA_GET_SN, line) == RES_OK) {
+					line[20] = '\0'; xprintf(PSTR("S/N: %s\n"), line);
+				}
 				break;
 
 			case 'c' :	/* Disk ioctl */
@@ -305,8 +317,9 @@ int main (void)
 			switch (*ptr++) {
 			case 'd' :	/* bd <addr> - Dump R/W buffer */
 				if (!xatoi(&ptr, &p1)) break;
-				for (bp=&Buff[p1], ofs = p1, cnt = 32; cnt; cnt--, ptr+=16, ofs+=16)
+				for (bp=&Buff[p1], ofs = p1, cnt = 32; cnt; cnt--, bp += 16, ofs += 16) {
 					put_dump(bp, ofs, 16);
+				}
 				break;
 
 			case 'e' :	/* be <addr> [<data>] ... - Edit R/W buffer */
@@ -369,16 +382,16 @@ int main (void)
 			case 's' :	/* fs [<path>] - Show logical drive status */
 				while (*ptr == ' ') ptr++;
 				ptr2 = ptr;
-				fr = f_getfree(ptr, (DWORD*)&p2, &fs);
+				fr = f_getfree(ptr, &dw, &fs);
 				if (fr) { 
 					put_rc(fr); break;
 				}
-				xprintf(PSTR("FAT type = %u\nBytes/Cluster = %lu\nNumber of FATs = %u\n"
+				xprintf(PSTR("FAT type = %s\nBytes/Cluster = %lu\nNumber of FATs = %u\n"
 							 "Root DIR entries = %u\nSectors/FAT = %lu\nNumber of clusters = %lu\n"
-							 "FAT start (lba) = %lu\nDIR start (lba,clustor) = %lu\nData start (lba) = %lu\n\n"),
-						fs->fs_type, (DWORD)fs->csize * 512, fs->n_fats,
+							 "Volume start (lba) = %lu\nFAT start (lba) = %lu\nDIR start (lba,clustor) = %lu\nData start (lba) = %lu\n\n"),
+						fst[fs->fs_type], (DWORD)fs->csize * 512, fs->n_fats,
 						fs->n_rootdir, fs->fsize, fs->n_fatent - 2,
-						fs->fatbase, fs->dirbase, fs->database
+						(DWORD)fs->volbase, (DWORD)fs->fatbase, (DWORD)fs->dirbase, (DWORD)fs->database
 				);
 #if FF_USE_LABEL
 				fr = f_getlabel(ptr2, (char*)Buff, (DWORD*)&p1);
@@ -389,16 +402,16 @@ int main (void)
 				xprintf(PSTR("Volume S/N is %04X-%04X\n"), (WORD)((DWORD)p1 >> 16), (WORD)(p1 & 0xFFFF));
 #endif
 				xputs(PSTR("..."));
-				AccSize = AccFiles = AccDirs = 0;
+				acc_size = acc_dirs = acc_files = 0;
 				strcpy((char*)Buff, ptr);
-				fr = scan_files((char*)Buff);
+				fr = scan_files((char*)Buff, &acc_dirs, &acc_files, &acc_size);
 				if (fr) {
 					put_rc(fr); break;
 				}
 				xprintf(PSTR("\r%u files, %lu bytes.\n%u folders.\n"
-							 "%lu KB total disk space.\n%lu KB available.\n"),
-						AccFiles, AccSize, AccDirs,
-						(fs->n_fatent - 2) * fs->csize / 2, p2 * fs->csize / 2
+							 "%lu KiB total disk space.\n%lu KiB available.\n"),
+						acc_files, acc_size, acc_dirs,
+						(fs->n_fatent - 2) * (fs->csize / 2), dw * (fs->csize / 2)
 				);
 				break;
 
@@ -430,8 +443,8 @@ int main (void)
 				}
 				if (fr == FR_OK) {
 					xprintf(PSTR("%4u File(s),%10lu bytes total\n%4u Dir(s)"), s1, p1, s2);
-					if (f_getfree(ptr, (DWORD*)&p1, &fs) == FR_OK) {
-						xprintf(PSTR(", %10luKiB free\n"), p1 * fs->csize / 2);
+					if (f_getfree(ptr, &dw, &fs) == FR_OK) {
+						xprintf(PSTR(", %10luKiB free\n"), dw * fs->csize / 2);
 					}
 				}
 				if (fr) put_rc(fr);
@@ -618,13 +631,33 @@ int main (void)
 				break;
 #endif
 #if FF_USE_MKFS
-			case 'm' :	/* fm <ld#> <type> <bytes/clust> - Create filesystem */
-				if (!xatoi(&ptr, &p1) || (UINT)p1 > 9 || !xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
-				xprintf(PSTR("The drive %u will be formatted. Are you sure? (Y/n)="), (WORD)p1);
-				get_line(line, sizeof line);
-				if (line[0] == 'Y') {
-					xsprintf(line, PSTR("%u:"), (UINT)p1);
-					put_rc(f_mkfs(line, (BYTE)p2, (DWORD)p3, Buff, sizeof Buff));
+			case 'm' :	/* fm <ld#> [<fs type> [<au_size> [<align> [<n_fats> [<n_root>]]]]] - Create filesystem */
+				if (xatoi(&ptr, &p1) && (UINT)p1 < FF_VOLUMES) {
+					MKFS_PARM opt, *popt = 0;
+
+					if (xatoi(&ptr, &p2)) {
+						memset(&opt, 0, sizeof opt);
+						popt = &opt;
+						popt->fmt = (BYTE)p2;
+						if (xatoi(&ptr, &p2)) {
+							popt->au_size = p2;
+							if (xatoi(&ptr, &p2)) {
+								popt->align = p2;
+								if (xatoi(&ptr, &p2)) {
+									popt->n_fat = (BYTE)p2;
+									if (xatoi(&ptr, &p2)) {
+										popt->n_root = p2;
+									}
+								}
+							}
+						}
+					}
+					xprintf(PSTR("The drive %u will be formatted. Are you sure? (Y/n)="), (WORD)p1);
+					get_line(line, sizeof line);
+					if (line[0] == 'Y') {
+						xsprintf(line, PSTR("%u:"), (UINT)p1);
+						put_rc(f_mkfs(line, popt, Buff, sizeof Buff));
+					}
 				}
 				break;
 #endif
@@ -693,7 +726,7 @@ int main (void)
 			" fg <path> - Change current directory\n"
 			" fj <path> - Change current drive\n"
 			" fq - Show current directory\n"
-			" fm <ld#> <type> <au> - Create FAT volume\n"
+			" fm <ld#> [<fs type> [<au_size> [<align> [<n_fats> [<n_root>]]]]] - Create FAT volume\n"
 			"[Misc commands]\n"
 			" p <wavfile> - Play RIFF-WAVE file\n"
 			" t [<year> <month> <mday> <hour> <min> <sec>] - Set/Show current time\n"

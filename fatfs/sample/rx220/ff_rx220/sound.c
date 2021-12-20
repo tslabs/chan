@@ -25,12 +25,12 @@
 #define	LD_DWORD(ptr)		(DWORD)(*(DWORD*)(BYTE*)(ptr))
 
 
-static
-WAVFIFO *SoundFifo;	/* Pointer to sound FIFO control block */
+static WAVFIFO *SoundOut;	/* Pointer to sound output stream control block */
 
 
 /*-----------------------------------------------------*/
 /* Audio sampling interval ISR (CMT1)                  */
+/*-----------------------------------------------------*/
 
 void Excep_CMT1_CMI1 (void)
 {
@@ -40,7 +40,7 @@ void Excep_CMT1_CMI1 (void)
 	uint8_t *buff;
 
 
-	fcb = SoundFifo;
+	fcb = SoundOut;
 	if (!fcb) return;	/* Spurious interrupt? */
 
 	buff = fcb->buff;
@@ -79,15 +79,16 @@ void Excep_CMT1_CMI1 (void)
 
 /*-----------------------------------------------------*/
 /* Enable sound output stream                          */
+/*-----------------------------------------------------*/
 
-int sound_start (
-	WAVFIFO* fcb,	/* Pointer to the sound FIFO control structure */
+int sound_start (	/* Returns 1 if ready to steram, 0 on error */
+	WAVFIFO* fcb,	/* Pointer to the sound output stream control structure */
 	uint32_t fs		/* Sampling frequency [Hz] */
 )
 {
 	if (fs < 8000 || fs > 48000) return 0;	/* Check fs range */
 
-	SoundFifo = fcb;			/* Register FIFO control structure */
+	SoundOut = fcb;			/* Register sound output control structure */
 	fcb->ri = 0; fcb->wi = 0; fcb->ct = 0;	/* Flush FIFO */
 
 	/* Enable MTU and CMT1 */
@@ -137,7 +138,8 @@ int sound_start (
 
 
 /*-----------------------------------------------------*/
-/* Disable sound stream                                */
+/* Disable sound output stream                         */
+/*-----------------------------------------------------*/
 
 void sound_stop (void)
 {
@@ -146,7 +148,7 @@ void sound_stop (void)
 	MTU4.TGRC = 0x0080;	/* Return audio outputs to center level (PWM is left activated) */
 	MTU3.TGRC = 0x0080;
 
-	SoundFifo = 0;		/* Unregister FIFO control structure */
+	SoundOut = 0;		/* Unregister stream control structure */
 }
 
 
@@ -162,9 +164,8 @@ void sound_stop (void)
 #define FCC(c1,c2,c3,c4)	((c4<<24)+(c3<<16)+(c2<<8)+c1)	/* Create FourCC */
 
 
-int load_wav (
+int load_wav (			/* Terminated by: -1=error, 0=eof, >0=key_input */
 	FIL *fp,			/* Pointer to the open file object to play */
-	const char *title,	/* Title (file name, etc...) */
 	void *work,			/* Pointer to working buffer (must be-4 byte aligned) */
 	uint32_t sz_work	/* Size of working buffer (must be power of 2) */
 )
@@ -175,8 +176,6 @@ int load_wav (
 	BYTE k, *buff = work;
 	char *p, nam[NBSIZE], art[NBSIZE];
 
-
-	xprintf("**** RIFF-WAVE Player ****\nFile=%s\n", title);	/* Put title */
 
 	/* Is this a WAV file? */
 	if (f_read(fp, buff, 12, &br) || br != 12) return -1;
@@ -193,16 +192,16 @@ int load_wav (
 		switch (LD_DWORD(&buff[0])) {
 		case FCC('f','m','t',' ') :	/* fmt chunk */
 			if (sz > 1000 || sz < 16 || f_read(fp, buff, sz, &br) || sz != br) return -1;
-			if (LD_WORD(&buff[0]) != 0x1) return -1;	/* Check if LPCM or not */
-			if (LD_WORD(&buff[2]) == 2) {	/* Check channels (1 or 2) */
+			if (LD_WORD(&buff[0]) != 1) return -1;	/* Check if LPCM or not */
+			if (LD_WORD(&buff[2]) == 2) {			/* Check channels (1 or 2) */
 				md = 1; wsmp = 2;
 			} else {
 				md = 0; wsmp = 1;
 			}
-			if (LD_WORD(&buff[14]) == 16) {	/* Resolution (8 or 16) */
+			if (LD_WORD(&buff[14]) == 16) {	/* Resolution bits (8 or 16) */
 				md |= 2; wsmp *= 2;
 			}
-			fsmp = LD_DWORD(&buff[4]);		/* Sampling rate */
+			fsmp = LD_DWORD(&buff[4]);		/* Sampling rate [Hz] */
 			break;
 
 		case FCC('f','a','c','t') :	/* fact chunk */
@@ -222,12 +221,10 @@ int load_wav (
 				while (f_tell(fp) < sz) {
 					if (f_read(fp, buff, 8, &br) || br != 8) return -1;
 					ssz = (LD_DWORD(&buff[4]) + 1) & ~1;
-					p = 0;
 					switch (LD_DWORD(buff)) {
-					case FCC('I','N','A','M'):		/* INAM (name) field */
-						p = nam; break;
-					case FCC('I','A','R','T'):		/* IART (artist) field */
-						p = art; break;
+					case FCC('I','N','A','M'): p = nam; break;	/* INAM (name) field */
+					case FCC('I','A','R','T'): p = art; break;	/* IART (artist) field */
+					default: p = 0;
 					}
 					if (p && ssz <= NBSIZE) {
 						if (f_read(fp, p, ssz, &br) || br != ssz) return -1;
@@ -251,7 +248,7 @@ int load_wav (
 	xprintf("IART=%s\nINAM=%s\n", art, nam);
 	xprintf("Sample=%u.%ukHz/%ubit/%s\nLength=%u:%02u\n", fsmp / 1000, (fsmp / 100) % 10, (md & 2) ? 16 : 8, (md & 1) ? "Stereo" : "Mono", tc / 60, tc % 60);
 
-	/* Initialize sound FIFO and start sound streming */
+	/* Initialize sound output stream and start to play */
 	fcb.mode = md;			/* Sampling: b0=mono(0)/stereo(1), b1=8bit(0)/16bit(1) */
 	fcb.buff = buff;		/* Pointer to streaming buffer */
 	fcb.sz_buff = sz_work;	/* Size of streaming buffer */

@@ -253,7 +253,6 @@ int rcvr_datablock (	/* 1:OK, 0:Error */
 /* Send a data packet to the MMC                                         */
 /*-----------------------------------------------------------------------*/
 
-#if _USE_WRITE
 static
 int xmit_datablock (	/* 1:OK, 0:Failed */
 	const BYTE *buff,	/* Ponter to 512 byte data to be sent */
@@ -275,7 +274,6 @@ int xmit_datablock (	/* 1:OK, 0:Failed */
 	}
 	return 1;
 }
-#endif
 
 
 
@@ -361,14 +359,14 @@ DSTATUS disk_initialize (
 				while (Timer1 && send_cmd(ACMD41, 1UL << 30)) ;	/* Wait for end of initialization with ACMD41(HCS) */
 				if (Timer1 && send_cmd(CMD58, 0) == 0) {		/* Check CCS bit in the OCR */
 					for (n = 0; n < 4; n++) ocr[n] = xchg_spi(0xFF);
-					ty = (ocr[0] & 0x40) ? CT_SD2 | CT_BLOCK : CT_SD2;	/* Card id SDv2 */
+					ty = (ocr[0] & 0x40) ? CT_SDC2 | CT_BLOCK : CT_SDC2;	/* Card id SDv2 */
 				}
 			}
 		} else {	/* Not SDv2 card */
 			if (send_cmd(ACMD41, 0) <= 1) 	{	/* SDv1 or MMC? */
-				ty = CT_SD1; cmd = ACMD41;	/* SDv1 (ACMD41(0)) */
+				ty = CT_SDC1; cmd = ACMD41;	/* SDv1 (ACMD41(0)) */
 			} else {
-				ty = CT_MMC; cmd = CMD1;	/* MMCv3 (CMD1(0)) */
+				ty = CT_MMC3; cmd = CMD1;	/* MMCv3 (CMD1(0)) */
 			}
 			while (Timer1 && send_cmd(cmd, 0)) ;		/* Wait for end of initialization */
 			if (!Timer1 || send_cmd(CMD16, 512) != 0) ty = 0;	/* Set block length: 512 */
@@ -412,23 +410,26 @@ DSTATUS disk_status (
 DRESULT disk_read (
 	BYTE pdrv,		/* Physical drive number (0) */
 	BYTE *buff,		/* Pointer to the data buffer to store read data */
-	DWORD sector,	/* Start sector number (LBA) */
+	LBA_t sector,	/* Start sector number (LBA) */
 	UINT count		/* Number of sectors to read (1..128) */
 )
 {
+	DWORD sect = (DWORD)sector;
+
+
 	if (pdrv || !count) return RES_PARERR;		/* Check parameter */
 	if (Stat & STA_NOINIT) return RES_NOTRDY;	/* Check if drive is ready */
 
-	if (!(CardType & CT_BLOCK)) sector *= 512;	/* LBA ot BA conversion (byte addressing cards) */
+	if (!(CardType & CT_BLOCK)) sect *= 512;	/* LBA ot BA conversion (byte addressing cards) */
 
 	if (count == 1) {	/* Single sector read */
-		if ((send_cmd(CMD17, sector) == 0)	/* READ_SINGLE_BLOCK */
+		if ((send_cmd(CMD17, sect) == 0)	/* READ_SINGLE_BLOCK */
 			&& rcvr_datablock(buff, 512)) {
 			count = 0;
 		}
 	}
 	else {				/* Multiple sector read */
-		if (send_cmd(CMD18, sector) == 0) {	/* READ_MULTIPLE_BLOCK */
+		if (send_cmd(CMD18, sect) == 0) {	/* READ_MULTIPLE_BLOCK */
 			do {
 				if (!rcvr_datablock(buff, 512)) break;
 				buff += 512;
@@ -447,29 +448,31 @@ DRESULT disk_read (
 /* Write sector(s)                                                       */
 /*-----------------------------------------------------------------------*/
 
-#if _USE_WRITE
 DRESULT disk_write (
 	BYTE pdrv,			/* Physical drive number (0) */
 	const BYTE *buff,	/* Ponter to the data to write */
-	DWORD sector,		/* Start sector number (LBA) */
+	LBA_t sector,		/* Start sector number (LBA) */
 	UINT count			/* Number of sectors to write (1..128) */
 )
 {
+	DWORD sect = (DWORD)sector;
+
+
 	if (pdrv || !count) return RES_PARERR;		/* Check parameter */
 	if (Stat & STA_NOINIT) return RES_NOTRDY;	/* Check drive status */
 	if (Stat & STA_PROTECT) return RES_WRPRT;	/* Check write protect */
 
-	if (!(CardType & CT_BLOCK)) sector *= 512;	/* LBA ==> BA conversion (byte addressing cards) */
+	if (!(CardType & CT_BLOCK)) sect *= 512;	/* LBA ==> BA conversion (byte addressing cards) */
 
 	if (count == 1) {	/* Single sector write */
-		if ((send_cmd(CMD24, sector) == 0)	/* WRITE_BLOCK */
+		if ((send_cmd(CMD24, sect) == 0)	/* WRITE_BLOCK */
 			&& xmit_datablock(buff, 0xFE)) {
 			count = 0;
 		}
 	}
 	else {				/* Multiple sector write */
 		if (CardType & CT_SDC) send_cmd(ACMD23, count);
-		if (send_cmd(CMD25, sector) == 0) {	/* WRITE_MULTIPLE_BLOCK */
+		if (send_cmd(CMD25, sect) == 0) {	/* WRITE_MULTIPLE_BLOCK */
 			do {
 				if (!xmit_datablock(buff, 0xFC)) break;
 				buff += 512;
@@ -481,7 +484,6 @@ DRESULT disk_write (
 
 	return count ? RES_ERROR : RES_OK;	/* Return result */
 }
-#endif /* _USE_WRITE */
 
 
 
@@ -489,7 +491,6 @@ DRESULT disk_write (
 /* Miscellaneous drive controls other than data read/write               */
 /*-----------------------------------------------------------------------*/
 
-#if _USE_IOCTL
 DRESULT disk_ioctl (
 	BYTE pdrv,		/* Physical drive number (0) */
 	BYTE ctrl,		/* Control command code */
@@ -499,7 +500,8 @@ DRESULT disk_ioctl (
 	DRESULT res;
 	BYTE n, csd[16], *ptr = buff;
 	WORD csize;
-	DWORD d, *dp, st, ed;
+	DWORD d, st, ed;
+	LBA_t *dp;
 
 
 	if (pdrv) return RES_PARERR;				/* Check parameter */
@@ -516,18 +518,18 @@ DRESULT disk_ioctl (
 		if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {
 			if ((csd[0] >> 6) == 1) {	/* SDC ver 2.00 */
 				csize = csd[9] + ((WORD)csd[8] << 8) + 1;
-				*(DWORD*)buff = (DWORD)csize << 10;
+				*(LBA_t*)buff = (DWORD)csize << 10;
 			} else {					/* SDC ver 1.XX or MMC ver 3 */
 				n = (csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2;
 				csize = (csd[8] >> 6) + ((WORD)csd[7] << 2) + ((WORD)(csd[6] & 3) << 10) + 1;
-				*(DWORD*)buff = (DWORD)csize << (n - 9);
+				*(LBA_t*)buff = (DWORD)csize << (n - 9);
 			}
 			res = RES_OK;
 		}
 		break;
 
 	case GET_BLOCK_SIZE :	/* Get erase block size in unit of sector (DWORD) */
-		if (CardType & CT_SD2) {	/* SDC ver 2.00 */
+		if (CardType & CT_SDC2) {	/* SDC ver 2.00 */
 			if (send_cmd(ACMD13, 0) == 0) {	/* Read SD status */
 				xchg_spi(0xFF);
 				if (rcvr_datablock(csd, 16)) {					/* Read partial block */
@@ -538,7 +540,7 @@ DRESULT disk_ioctl (
 			}
 		} else {					/* SDC ver 1.XX or MMC */
 			if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {	/* Read CSD */
-				if (CardType & CT_SD1) {	/* SDC ver 1.XX */
+				if (CardType & CT_SDC1) {	/* SDC ver 1.XX */
 					*(DWORD*)buff = (((csd[10] & 63) << 1) + ((WORD)(csd[11] & 128) >> 7) + 1) << ((csd[13] >> 6) - 1);
 				} else {					/* MMC */
 					*(DWORD*)buff = ((WORD)((csd[10] & 124) >> 2) + 1) * (((csd[11] & 3) << 3) + ((csd[11] & 224) >> 5) + 1);
@@ -551,8 +553,8 @@ DRESULT disk_ioctl (
 	case CTRL_TRIM :	/* Erase a block of sectors (used when _USE_TRIM == 1) */
 		if (!(CardType & CT_SDC)) break;				/* Check if the card is SDC */
 		if (disk_ioctl(pdrv, MMC_GET_CSD, csd)) break;	/* Get CSD */
-		if (!(csd[0] >> 6) && !(csd[10] & 0x40)) break;	/* Check if sector erase can be applied to the card */
-		dp = buff; st = dp[0]; ed = dp[1];				/* Load sector block */
+		if (!(csd[10] & 0x40)) break;					/* Check if ERASE_BLK_EN=1 */
+		dp = buff; st = (DWORD)dp[0]; ed = (DWORD)dp[1];	/* Load sector block */
 		if (!(CardType & CT_BLOCK)) {
 			st *= 512; ed *= 512;
 		}
@@ -602,7 +604,6 @@ DRESULT disk_ioctl (
 
 	return res;
 }
-#endif /* _USE_IOCTL */
 
 
 /*-----------------------------------------------------------------------*/

@@ -433,15 +433,16 @@ int flush_block (void)
 
 static
 DRESULT blank_log_blocks (
-	DWORD *region		/* Block of logical sectors to be blanked {start, end} */
+	LBA_t *region		/* Block of logical sectors to be blanked {start, end} */
 )						/* If start sector is not top of a logical block, the block is left not blanked. */
 {						/* If end sector is not end of a logical block, the block is left not blanked. */
 	WORD stlb, edlb, pb;
+	DWORD st = (DWORD)region[0], ed = (DWORD)region[1];
 
 
-	if (region[1] >= MAX_LBA || region[0] > region[1]) return RES_PARERR;
-	stlb = (WORD)((region[0] + N_SIZE_BLK - 1) / N_SIZE_BLK);	/* Start LB */
-	edlb = (WORD)((region[1] + 1) / N_SIZE_BLK);				/* End LB + 1 */
+	if (ed >= MAX_LBA || st > ed) return RES_PARERR;
+	stlb = (WORD)((st + N_SIZE_BLK - 1) / N_SIZE_BLK);	/* Start LB */
+	edlb = (WORD)((ed + 1) / N_SIZE_BLK);				/* End LB + 1 */
 
 	for (pb = N_RES_BLKS; pb < N_TOTAL_BLKS; pb++) {
 		if (BlockStat[pb] >= stlb && BlockStat[pb] < edlb) {
@@ -688,25 +689,26 @@ DSTATUS NAND_status (void)
 
 DRESULT NAND_read (
 	BYTE* buff,		/* Data read buffer */
-	DWORD lba,		/* Start sector number (LBA) */
+	LBA_t lba,		/* Start sector number (LBA) */
 	UINT sc			/* Number of sectors to read */
 )
 {
+	DWORD sect = (DWORD)lba;
 	WORD lb;
 	UINT s, i, j;
 
 
 	if (!Init) return RES_NOTRDY;				/* Initialized? */
-	if (lba + sc > MAX_LBA) return RES_PARERR;	/* Range check */
+	if (sect + sc > MAX_LBA) return RES_PARERR;	/* Range check */
 
 	while (sc) {
-		lb = lba / N_SIZE_BLK;	/* Block to be read */
+		lb = sect / N_SIZE_BLK;	/* Block to be read */
 		if (lb != LogBlock) {	/* Load the block if it is different with current block */
 			if (!flush_block()) return RES_ERROR;
 			load_block(lb, 1);
 		}
 		do {
-			i = lba % N_SIZE_BLK;	/* Sector offset in the block */
+			i = sect % N_SIZE_BLK;	/* Sector offset in the block */
 			s = ~BlockBuff[i][130] >> 24;	/* Check if the sector is blank */
 			if (s & (s - 1)) {	/* Live sector (copy data) */
 				if (!PageStat[i]) {	/* Check ECC if not checked */
@@ -725,8 +727,8 @@ DRESULT NAND_read (
 				for (j = 0; j < 512; j++)	/* Fill app buffer with 0xFF */
 					buff[j] = 0xFF;
 			}
-			buff += 512; lba++; sc--;
-		} while (sc && (lba % N_SIZE_BLK));		/* Repeat until last sector or end of block */
+			buff += 512; sect++; sc--;
+		} while (sc && (sect % N_SIZE_BLK));	/* Repeat until last sector or end of block */
 	}
 
 	return RES_OK;
@@ -741,21 +743,22 @@ DRESULT NAND_read (
 
 DRESULT NAND_write (
 	const BYTE* buff,	/* Data to be written */
-	DWORD lba,			/* Start sector number (LBA) */
+	LBA_t lba,			/* Start sector number (LBA) */
 	UINT sc				/* Number of sectors to write */
 )
 {
+	DWORD sect = (DWORD)lba;
 	WORD lb;
 	UINT i;
 	int load;
 
 
 	if (!Init) return RES_NOTRDY;				/* Initialized? */
-	if (lba + sc > MAX_LBA) return RES_PARERR;	/* Range check */
+	if (sect + sc > MAX_LBA) return RES_PARERR;	/* Range check */
 
 	while (sc) {
-		lb = lba / N_SIZE_BLK;	/* Block to be written */
-		i = lba % N_SIZE_BLK;	/* Sector offset in the block */
+		lb = sect / N_SIZE_BLK;	/* Block to be written */
+		i = sect % N_SIZE_BLK;	/* Sector offset in the block */
 		if (lb != LogBlock) {	/* Load a new block if block is different */
 			if (!flush_block()) return RES_ERROR;
 			load = (i == 0 && sc >= N_SIZE_BLK) ? 0 : 1;	/* Do not read block if the entire block is to be overwritten */
@@ -766,8 +769,8 @@ DRESULT NAND_write (
 			BlockBuff[i][130] = create_ecc(&BlockBuff[i][0]);	/* Create ECC 1 (the sector goes live) */
 			BlockBuff[i][131] = create_ecc(&BlockBuff[i][64]);	/* Create ECC 2 */
 			PageStat[i] = 1;
-			buff += 512; i++; lba++; sc--;
-		} while (sc && (lba % N_SIZE_BLK));	/* Repeat until last sector or end of block */
+			buff += 512; i++; sect++; sc--;
+		} while (sc && (sect % N_SIZE_BLK));	/* Repeat until last sector or end of block */
 		BlockDirty = 1;
 	}
 
@@ -791,7 +794,7 @@ DRESULT NAND_ioctl (
 		return flush_block() ? RES_OK : RES_ERROR;
 
 	case GET_SECTOR_COUNT:	/* Get number of user sectors */
-		*(DWORD*)buff = (DWORD)MAX_LBA;
+		*(LBA_t*)buff = (DWORD)MAX_LBA;
 		return RES_OK;
 
 	case GET_BLOCK_SIZE:	/* Get erase block size */

@@ -1,18 +1,20 @@
 ### Project name (also used for output file name)
 PROJECT	= fftest
 
-### Source files and search directories
+### Source files
 CSRC	= main.c interrupt.c uart23xx.c rtc23xx.c filer.c sound.c xprintf.c diskio.c mmc_lpc23xx_mci.c ff.c ffunicode.c
 ASRC	=
 CSRCARM	= disp.c tjpgd.c nand_ftl.c
 ASRCARM	= asmfunc.S
-VPATH   = option
+
+### Search directories (make uses VPATH to search source files)
+VPATH   =
 
 ### Optimization level (0, 1, 2, 3, 4 or s)
 OPTIMIZE = s
 
 ### C Standard level (c89, gnu89, c99 or gnu99)
-CSTD = gnu89
+CSTD = gnu99
 
 ### Processor type and Thumb(-2) mode for CSRC/ASRC files (YES or NO)
 CPU   = arm7tdmi-s
@@ -35,7 +37,7 @@ DEFS	=
 ADEFS	=
 
 ### Warning contorls
-WARNINGS = all extra
+WARNINGS = all extra error
 
 ### Object output directory
 OBJDIR = obj
@@ -79,6 +81,7 @@ CFLAGS += $(addprefix -W,$(WARNINGS))
 CFLAGS += $(addprefix -I,$(INCDIRS))
 CFLAGS += $(addprefix -D,$(DEFS))
 CFLAGS += -Wp,-MM,-MP,-MT,$(OBJDIR)/$(*F).o,-MF,$(OBJDIR)/$(*F).d
+CFLAGS += -fno-diagnostics-color
 
 
 # Assembler flags

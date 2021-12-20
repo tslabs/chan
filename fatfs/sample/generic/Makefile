@@ -23,7 +23,7 @@ DEFS	= F_CPU=8000000
 ADEFS	=
 
 ### Warning contorls
-WARNINGS = all extra
+WARNINGS = all extra error
 
 ### Output directory
 OBJDIR = obj

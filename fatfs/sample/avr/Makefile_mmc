@@ -4,6 +4,8 @@ PROJECT	= avr_mmc
 ### Source files and search directory
 CSRC    = main.c uart.c diskio.c mmc_avr_usart.c rtc_ds1338.c ff.c ffunicode_avr.c
 ASRC    = xitoa.S
+
+### Search directories (make uses VPATH to search source files)
 VPATH   =
 
 ### Target device
@@ -13,7 +15,7 @@ DEVICE  = atmega1284p
 OPTIMIZE = s
 
 ### C Standard level (c89, gnu89, c99 or gnu99)
-CSTD = gnu89
+CSTD = gnu99
 
 ### Include dirs, library dirs and definitions
 LIBS	=
@@ -23,7 +25,7 @@ DEFS	= F_CPU=20000000 DRV_MMC=0
 ADEFS	=
 
 ### Warning contorls
-WARNINGS = all extra
+WARNINGS = all extra error
 
 ### Output directory
 OBJDIR = obj_mmc
@@ -59,6 +61,7 @@ CFLAGS += $(addprefix -W,$(WARNINGS))
 CFLAGS += $(addprefix -I,$(INCDIRS))
 CFLAGS += $(addprefix -D,$(DEFS))
 CFLAGS += -Wp,-MM,-MP,-MT,$(OBJDIR)/$(*F).o,-MF,$(OBJDIR)/$(*F).d
+CFLAGS += -fno-diagnostics-color
 
 
 # Assembler flags
@@ -122,7 +125,7 @@ version :
 # Display size of file.
 size:
 	@echo
-	$(SIZE) -C --mcu=$(DEVICE) $(PROJECT).elf
+	$(SIZE) -G $(PROJECT).elf
 
 
 # Link: create ELF output file from object files.

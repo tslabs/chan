@@ -385,23 +385,26 @@ DSTATUS disk_initialize (
 DRESULT disk_read (
 	BYTE pdrv,		/* Physical drive nmuber (0) */
 	BYTE *buff,		/* Pointer to the data buffer to store read data */
-	DWORD sector,	/* Start sector number (LBA) */
+	LBA_t sector,	/* Start sector number (LBA) */
 	UINT count		/* Sector count (1..128) */
 )
 {
+	DWORD sect = (DWORD)sector;
+
+
 	if (pdrv || !count) return RES_PARERR;
 	if (Stat & STA_NOINIT) return RES_NOTRDY;
 
-	if (!(CardType & CT_BLOCK)) sector *= 512;	/* Convert to byte address if needed */
+	if (!(CardType & CT_BLOCK)) sect *= 512;	/* Convert to byte address if needed */
 
 	if (count == 1) {		/* Single block read */
-		if ((send_cmd(CMD17, sector) == 0)	/* READ_SINGLE_BLOCK */
+		if ((send_cmd(CMD17, sect) == 0)	/* READ_SINGLE_BLOCK */
 			&& rcvr_datablock(buff, 512)) {
 			count = 0;
 		}
 	}
 	else {				/* Multiple block read */
-		if (send_cmd(CMD18, sector) == 0) {	/* READ_MULTIPLE_BLOCK */
+		if (send_cmd(CMD18, sect) == 0) {	/* READ_MULTIPLE_BLOCK */
 			do {
 				if (!rcvr_datablock(buff, 512)) break;
 				buff += 512;
@@ -424,25 +427,28 @@ DRESULT disk_read (
 DRESULT disk_write (
 	BYTE pdrv,				/* Physical drive nmuber (0) */
 	const BYTE *buff,		/* Pointer to the data to be written */
-	DWORD sector,			/* Start sector number (LBA) */
+	LBA_t sector,			/* Start sector number (LBA) */
 	UINT count				/* Sector count (1..128) */
 )
 {
+	DWORD sect = (DWORD)sector;
+
+
 	if (pdrv || !count) return RES_PARERR;
 	if (Stat & STA_NOINIT) return RES_NOTRDY;
 	if (Stat & STA_PROTECT) return RES_WRPRT;
 
-	if (!(CardType & CT_BLOCK)) sector *= 512;	/* Convert to byte address if needed */
+	if (!(CardType & CT_BLOCK)) sect *= 512;	/* Convert to byte address if needed */
 
 	if (count == 1) {		/* Single block write */
-		if ((send_cmd(CMD24, sector) == 0)	/* WRITE_BLOCK */
+		if ((send_cmd(CMD24, sect) == 0)	/* WRITE_BLOCK */
 			&& xmit_datablock(buff, 0xFE)) {
 			count = 0;
 		}
 	}
 	else {				/* Multiple block write */
 		if (CardType & CT_SDC) send_cmd(ACMD23, count);
-		if (send_cmd(CMD25, sector) == 0) {	/* WRITE_MULTIPLE_BLOCK */
+		if (send_cmd(CMD25, sect) == 0) {	/* WRITE_MULTIPLE_BLOCK */
 			do {
 				if (!xmit_datablock(buff, 0xFC)) break;
 				buff += 512;
@@ -487,11 +493,11 @@ DRESULT disk_ioctl (
 		if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {
 			if ((csd[0] >> 6) == 1) {	/* SDv2? */
 				csz = csd[9] + ((WORD)csd[8] << 8) + ((DWORD)(csd[7] & 63) << 16) + 1;
-				*(DWORD*)buff = csz << 10;
+				*(LBA_t*)buff = csz << 10;
 			} else {					/* SDv1 or MMCv3 */
 				n = (csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2;
 				csz = (csd[8] >> 6) + ((WORD)csd[7] << 2) + ((WORD)(csd[6] & 3) << 10) + 1;
-				*(DWORD*)buff = csz << (n - 9);
+				*(LBA_t*)buff = csz << (n - 9);
 			}
 			res = RES_OK;
 		}

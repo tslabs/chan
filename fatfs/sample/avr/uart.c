@@ -11,7 +11,7 @@
 
 
 typedef struct {
-	uint16_t	wi, ri, ct;
+	uint8_t	wi, ri, ct;
 	uint8_t buff[UART_BUFF];
 } FIFO;
 static

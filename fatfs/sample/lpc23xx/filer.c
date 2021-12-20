@@ -44,40 +44,37 @@ typedef struct {
 
 
 
-
-static
-void put_size (
+static void put_size (
 	unsigned long sz
 )
 {
 	if (sz < 10000) {
-		xfprintf(disp_putc, "%6lu B", sz);
+		xfprintf(OLED, "%6lu B", sz);
 		return;
 	}
 	if (sz < 10 * 1024) {
-		xfprintf(disp_putc, "%4lu.%02luKB", sz / 1024, (sz % 1024) * 100 / 1024);
+		xfprintf(OLED, "%4lu.%02luKB", sz / 1024, (sz % 1024) * 100 / 1024);
 		return;
 	}
 	if (sz < 100 * 1024) {
-		xfprintf(disp_putc, "%4lu.%luKB", sz / 1024, (sz % 1024) * 10 / 1024);
+		xfprintf(OLED, "%4lu.%luKB", sz / 1024, (sz % 1024) * 10 / 1024);
 		return;
 	}
 	if (sz < 10000 * 1024) {
-		xfprintf(disp_putc, "%6luKB", sz / 1024);
+		xfprintf(OLED, "%6luKB", sz / 1024);
 		return;
 	}
 	if (sz < 10 * 1048576) {
-		xfprintf(disp_putc, "%4lu.%02luMB", sz / 1048576, (sz % 1048576) * 100 / 1048576);
+		xfprintf(OLED, "%4lu.%02luMB", sz / 1048576, (sz % 1048576) * 100 / 1048576);
 		return;
 	}
-	xfprintf(disp_putc, "%4lu.%luMB", sz / 1048576, (sz % 1048576) * 10 / 1048576);
+	xfprintf(OLED, "%4lu.%luMB", sz / 1048576, (sz % 1048576) * 10 / 1048576);
 	return;
 }
 
 
 
-static
-void put_item (
+static void put_item (
 	const ITEM *item,	/* Pointer to the dir item */
 	int vpos,			/* Row position in the file area */
 	int csr				/* Cursor on the item */
@@ -95,20 +92,19 @@ void put_item (
 	disp_font_color(col);
 
 	disp_locate(0, vpos + 1);
-	xfprintf(disp_putc, "%c%-12s", (item->fattrib & 0x80) ? '*' : ' ', item->fname);
+	xfprintf(OLED, "%c%-12s", (item->fattrib & 0x80) ? '*' : ' ', item->fname);
 	if (TS_WIDTH >= 40)
-		xfprintf(disp_putc, " %2u/%02u/%02u %2u:%02u", (item->fdate >> 9) + 1980, (item->fdate >> 5) & 15, item->fdate & 31, item->ftime >> 11, (item->ftime >> 5) & 63);
-	xfputs(disp_putc, "    ");
+		xfprintf(OLED, " %2u/%02u/%02u %2u:%02u", (item->fdate >> 9) + 1980, (item->fdate >> 5) & 15, item->fdate & 31, item->ftime >> 11, (item->ftime >> 5) & 63);
+	xfputs(OLED, "    ");
 	if (item->fattrib & AM_DIR)
-		xfputs(disp_putc, " <DIR>  ");
+		xfputs(OLED, " <DIR>  ");
 	else
 		put_size(item->fsize);
 }
 
 
 
-static
-void rfsh_list (	/* Draw directory items */
+static void rfsh_list (	/* Draw directory items */
 	const ITEM *diritems,	/* Pointer to directory item teble */
 	int item,		/* Current item */
 	int items,		/* Number of items */
@@ -124,22 +120,21 @@ void rfsh_list (	/* Draw directory items */
 	} else {
 		disp_font_color(C_WHITE);
 		disp_locate(0, 1);
-		xfputs(disp_putc, "No Item");
-		for (j = 0; j < TS_WIDTH; j++) disp_putc(' ');
-		disp_putc('\n');
+		xfputs(OLED, "No Item");
+		for (j = 0; j < TS_WIDTH; j++) xfputc(OLED, ' ');
+		xfputc(OLED, '\n');
 		i = 1;
 	}
 	disp_font_color(C_WHITE);
 	while (i < TS_HEIGHT - 1) {
-		for (j = 0; j < TS_WIDTH; j++) disp_putc(' ');
-		disp_putc('\n');
+		for (j = 0; j < TS_WIDTH; j++) xfputc(OLED, ' ');
+		xfputc(OLED, '\n');
 		i++;
 	}
 }
 
 
-static
-void rfsh_stat (		/* Draw status line */
+static void rfsh_stat (		/* Draw status line */
 	const ITEM *diritems,
 	int items
 )
@@ -159,19 +154,18 @@ void rfsh_stat (		/* Draw status line */
 	disp_locate(0, TS_HEIGHT - 1);
 	disp_font_color(C_STAT);
 	if (sel) {
-		xfprintf(disp_putc, " %d marked, ", sel);
+		xfprintf(OLED, " %d marked, ", sel);
 		put_size(szsel);
 	} else {
-		xfprintf(disp_putc, " %d items, ", items);
+		xfprintf(OLED, " %d items, ", items);
 		put_size(sztot);
 	}
-	for (i = 0; i < TS_WIDTH; i++) disp_putc(' ');
+	for (i = 0; i < TS_WIDTH; i++) xfputc(OLED, ' ');
 }
 
 
 
-static
-void rfsh_base (		/* Draw title line */
+static void rfsh_base (		/* Draw title line */
 	const char *path	/* Pointer to current directory path */
 )
 {
@@ -182,14 +176,13 @@ void rfsh_base (		/* Draw title line */
 #endif
 	disp_font_color(C_TITLE);
 	i = (strlen(path) > TS_WIDTH) ? strlen(path) - TS_WIDTH : 0;
-	xfprintf(disp_putc, "\f%s", path + i);
-	for (i = 0; i < TS_WIDTH; i++) disp_putc(' ');
+	xfprintf(OLED, "\f%s", path + i);
+	for (i = 0; i < TS_WIDTH; i++) xfputc(OLED, ' ');
 }
 
 
 
-static
-int selection (
+static int selection (
 	ITEM *diritems,
 	int items,
 	int op			/* 0:Check, 1:Clear all, 2:Set all */
@@ -216,8 +209,7 @@ int selection (
 
 
 
-static
-FRESULT load_dir (
+static FRESULT load_dir (
 	char path[],		/* Pointer to the current path name buffer */
 	ITEM diritems[],	/* Pointer to directory item table */
 	int *items
@@ -257,8 +249,7 @@ FRESULT load_dir (
 
 
 
-static
-void dlg_str (
+static void dlg_str (
 	const char *title,
 	const char *text,
 	int width
@@ -272,29 +263,28 @@ void dlg_str (
 
 	disp_locate(col, row);
 	disp_font_color(C_WBASE);
-	disp_putc(1);
+	xfputc(OLED, 1);
 	disp_font_color(C_WTITLE);
-	for (h = 1; h < width - 1 && *title; h++) disp_putc(*title++);
+	for (h = 1; h < width - 1 && *title; h++) xfputc(OLED, *title++);
 	disp_font_color(C_WBASE);
-	for ( ; h < width - 1; h++) disp_putc(6);
-	disp_putc(2);
+	for ( ; h < width - 1; h++) xfputc(OLED, 6);
+	xfputc(OLED, 2);
 
 	disp_locate(col, row + 1);
-	disp_putc(5);
-	for (h = 1; h < width - 1 && *text; h++) disp_putc(*text++);
-	for ( ; h < width - 1; h++) disp_putc(' ');
-	disp_putc(5);
+	xfputc(OLED, 5);
+	for (h = 1; h < width - 1 && *text; h++) xfputc(OLED, *text++);
+	for ( ; h < width - 1; h++) xfputc(OLED, ' ');
+	xfputc(OLED, 5);
 
 	disp_locate(col, row + 2);
-	disp_putc(3);
-	for (h = 1; h < width - 1; h++) disp_putc(6);
-	disp_putc(4);
+	xfputc(OLED, 3);
+	for (h = 1; h < width - 1; h++) xfputc(OLED, 6);
+	xfputc(OLED, 4);
 }
 
 
 
-static
-int dlg_input (
+static int dlg_input (
 	char *str,
 	const char *title,
 	const char *text,
@@ -323,7 +313,7 @@ int dlg_input (
 		j = i + 1 - width;
 		if (j < 0) j = 0;
 		disp_locate(col, row + 1);
-		for (h = 0; h < width; h++) disp_putc(str[j++]);
+		for (h = 0; h < width; h++) xfputc(OLED, str[j++]);
 		c = uart0_getc();
 		if (c == KEY_CAN) return 0;
 		if (c == KEY_OK) { str[i] = 0; return 1; }
@@ -346,7 +336,7 @@ int dlg_input (
 FRESULT cp_file (
 	FIL *fil,
 	FILER *fw,
-	INT item,
+	int item,
 	UINT sz_work
 )
 {
@@ -397,8 +387,7 @@ FRESULT cp_file (
 }
 
 
-static
-int strstr_ext (
+static int strstr_ext (
 	const char *src,
 	const char *dst
 )
@@ -493,14 +482,14 @@ void filer (
 		if (res) {	/* Dir load error */
 			disp_font_color(C_RED);
 			disp_locate(0, 1);
-			xfprintf(disp_putc, "FS error #%u.\nPush OK to retry...", res);
+			xfprintf(OLED, "FS error #%u.\nPush OK to retry...", res);
 		}
 		for (;;) {
 			k = uart0_getc();		/* Get a button/key command */
 			if (k >= 'a' && k <= 'z') k -= 0x20;
 
 			if (k == KEY_CAN) {				/* [Esc] Exit filer */
-				disp_putc('\f');
+				xfputc(OLED, '\f');
 				return;	/* Exit filer */
 			}
 			if (k == KEY_OK) {				/* [Enter] Open an item */

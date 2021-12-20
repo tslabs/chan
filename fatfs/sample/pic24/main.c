@@ -1,5 +1,5 @@
 /*---------------------------------------------------------------*/
-/* FAT file system module test program            (C)ChaN, 2013  */
+/* FAT file system module test program            (C)ChaN, 2019  */
 /*---------------------------------------------------------------*/
 
 
@@ -8,27 +8,23 @@
 #include "pic24f.h"
 #include "uart_pic24f.h"
 #include "xprintf.h"
-#include "diskio.h"
 #include "ff.h"
+#include "diskio.h"
 
 
 _CONFIG1(JTAGEN_OFF & GCP_OFF & GWRP_OFF & BKBUG_OFF & COE_OFF & ICS_PGx1 & FWDTEN_OFF & WINDIS_OFF & FWPSA_PR32 & WDTPS_PS32768)
 _CONFIG2(IESO_OFF & FNOSC_PRIPLL & FCKSM_CSDCMD & OSCIOFNC_OFF & IOL1WAY_OFF & I2C1SEL_PRI & POSCMOD_HS)
 
 
-DWORD AccSize;			/* Work register for fs command */
-WORD AccFiles, AccDirs;
-FILINFO Finfo;
-
 char Line[256];			/* Console input buffer */
 
 FATFS FatFs;			/* File system object */
 FIL File[2];			/* File objects */
+FILINFO Finfo;
 BYTE Buff[4096];		/* Working buffer */
 
 
 volatile UINT Timer;	/* 1kHz increment timer */
-
 volatile WORD rtcYear = 2017;
 volatile BYTE rtcMon = 5, rtcMday = 14, rtcHour, rtcMin, rtcSec;
 
@@ -130,7 +126,10 @@ void put_rc (FRESULT rc)
 
 static
 FRESULT scan_files (
-	char* path		/* Pointer to the path name working buffer */
+	char* path,		/* Pointer to the path name working buffer */
+	UINT* n_dir,
+	UINT* n_file,
+	DWORD* sz_file
 )
 {
 	DIR dirs;
@@ -142,17 +141,14 @@ FRESULT scan_files (
 		while (((res = f_readdir(&dirs, &Finfo)) == FR_OK) && Finfo.fname[0]) {
 			if (Finfo.fattrib & AM_DIR) {
 				i = strlen(path);
-				AccDirs++;
+				(*n_dir)++;
 				path[i] = '/'; strcpy(&path[i+1], Finfo.fname);
-				res = scan_files(path);
+				res = scan_files(path, n_dir, n_file, sz_file);
 				path[i] = 0;
 				if (res != FR_OK) break;
 			} else {
-#if 0
-				xprintf("%s/%s\n", path, fn);
-#endif
-				AccFiles++;
-				AccSize += Finfo.fsize;
+				(*n_file)++;
+				*sz_file += Finfo.fsize;
 			}
 		}
 	}
@@ -208,8 +204,8 @@ int main (void)
 	long p1, p2, p3;
 	BYTE b, drv = 0;
 	const BYTE ft[] = {0,12,16,32};
-	UINT s1, s2, cnt;
-	DWORD ofs = 0, sect = 0;
+	UINT s1, s2, cnt, acc_dirs, acc_files;
+	DWORD ofs = 0, sect = 0, dw, acc_size;
 	FRESULT res;
 	FATFS *fs;				/* Pointer to file system object */
 	DIR dir;				/* Directory object */
@@ -241,7 +237,7 @@ int main (void)
 				drv = (BYTE)p1; sect = p2 + 1;
 				xprintf("PD#:%u, Sector:%lu\n", (BYTE)p1, p2);
 				for (ptr=(char*)Buff, ofs = 0; ofs < 0x200; ptr += 16, ofs += 16)
-					put_dump((BYTE*)ptr, ofs, 16, DW_CHAR);
+					put_dump((BYTE*)ptr, ofs, 16, 1);
 				break;
 
 			case 'i' :	/* di <pd#> - Initialize physical drive */
@@ -258,14 +254,14 @@ int main (void)
 				if (disk_ioctl((BYTE)p1, MMC_GET_TYPE, &b) == RES_OK)
 					{ xprintf("MMC/SDC type: %u\n", b); }
 				if (disk_ioctl((BYTE)p1, MMC_GET_CSD, Buff) == RES_OK)
-					{ xputs("CSD:\n"); put_dump(Buff, 0, 16, DW_CHAR); }
+					{ xputs("CSD:\n"); put_dump(Buff, 0, 16, 1); }
 				if (disk_ioctl((BYTE)p1, MMC_GET_CID, Buff) == RES_OK)
-					{ xputs("CID:\n"); put_dump(Buff, 0, 16, DW_CHAR); }
+					{ xputs("CID:\n"); put_dump(Buff, 0, 16, 1); }
 				if (disk_ioctl((BYTE)p1, MMC_GET_OCR, Buff) == RES_OK)
-					{ xputs("OCR:\n"); put_dump(Buff, 0, 4, DW_CHAR); }
+					{ xputs("OCR:\n"); put_dump(Buff, 0, 4, 1); }
 				if (disk_ioctl((BYTE)p1, MMC_GET_SDSTAT, Buff) == RES_OK) {
 					xputs("SD Status:\n");
-					for (s1 = 0; s1 < 64; s1 += 16) put_dump(Buff+s1, s1, 16, DW_CHAR);
+					for (s1 = 0; s1 < 64; s1 += 16) put_dump(Buff+s1, s1, 16, 1);
 				}
 				break;
 			}
@@ -276,7 +272,7 @@ int main (void)
 			case 'd' :	/* bd <ofs> - Dump R/W buffer */
 				if (!xatoi(&ptr, &p1)) break;
 				for (ptr=(char*)&Buff[p1], ofs = p1, cnt = 32; cnt; cnt--, ptr += 16, ofs += 16)
-					put_dump((BYTE*)ptr, ofs, 16, DW_CHAR);
+					put_dump((BYTE*)ptr, ofs, 16, 1);
 				break;
 
 			case 'e' :	/* be <ofs> [<data>] ... - Edit R/W buffer */
@@ -321,14 +317,13 @@ int main (void)
 		case 'f' :
 			switch (*ptr++) {
 
-			case 'i' :	/* fi [<mount>] - Force initialized the logical drive */
-				if (!xatoi(&ptr, &p2)) p2 = 0;
-				put_rc(f_mount(&FatFs, "", (BYTE)p2));
+			case 'i' :	/* fi - Force initialized the logical drive */
+				put_rc(f_mount(&FatFs, "", 0));
 				break;
 
 			case 's' :	/* fs [<path>] - Show logical drive status */
 				while (*ptr == ' ') ptr++;
-				res = f_getfree(ptr, (DWORD*)&p2, &fs);
+				res = f_getfree(ptr, &dw, &fs);
 				if (res) { put_rc(res); break; }
 				xprintf("FAT type = FAT%u\nBytes/Cluster = %lu\nNumber of FATs = %u\n"
 						"Root DIR entries = %u\nSectors/FAT = %lu\nNumber of clusters = %lu\n"
@@ -337,13 +332,13 @@ int main (void)
 						fs->n_rootdir, fs->fsize, fs->n_fatent - 2,
 						fs->volbase, fs->fatbase, fs->dirbase, fs->database
 				);
-				AccSize = AccFiles = AccDirs = 0;
-				res = scan_files(ptr);
+				acc_size = acc_dirs = acc_files = 0;
+				res = scan_files(ptr, &acc_dirs, &acc_files, &acc_size);
 				if (res) { put_rc(res); break; }
 				xprintf("\r%u files, %lu bytes.\n%u folders.\n"
 						"%lu KiB total disk space.\n%lu KiB available.\n",
-						AccFiles, AccSize, AccDirs,
-						(fs->n_fatent - 2) * (fs->csize / 2), p2 * (fs->csize / 2)
+						acc_files, acc_size, acc_dirs,
+						(fs->n_fatent - 2) * (fs->csize / 2), dw * (fs->csize / 2)
 				);
 				break;
 
@@ -351,14 +346,14 @@ int main (void)
 				while (*ptr == ' ') ptr++;
 				res = f_opendir(&dir, ptr);
 				if (res) { put_rc(res); break; }
-				p1 = s1 = s2 = 0;
+				acc_size = acc_dirs = acc_files = 0;
 				for(;;) {
 					res = f_readdir(&dir, &Finfo);
 					if ((res != FR_OK) || !Finfo.fname[0]) break;
 					if (Finfo.fattrib & AM_DIR) {
-						s2++;
+						acc_dirs++;
 					} else {
-						s1++; p1 += Finfo.fsize;
+						acc_files++; acc_size += Finfo.fsize;
 					}
 					xprintf("%c%c%c%c%c %u/%02u/%02u %02u:%02u %9lu  %s\n",
 							(Finfo.fattrib & AM_DIR) ? 'D' : '-',
@@ -369,9 +364,13 @@ int main (void)
 							(Finfo.fdate >> 9) + 1980, (Finfo.fdate >> 5) & 15, Finfo.fdate & 31,
 							(Finfo.ftime >> 11), (Finfo.ftime >> 5) & 63, Finfo.fsize, Finfo.fname);
 				}
-				xprintf("%4u File(s),%10lu bytes total\n%4u Dir(s)", s1, p1, s2);
-				if (f_getfree(ptr, (DWORD*)&p1, &fs) == FR_OK)
-					xprintf(", %10lu bytes free\n", p1 * fs->csize * 512);
+				xprintf("%4u File(s),%10lu bytes total\n%4u Dir(s)", acc_files, acc_size, acc_dirs);
+				res = f_getfree(ptr, &dw, &fs);
+				if (res == FR_OK) {
+					xprintf(", %10lu bytes free\n", dw * fs->csize * 512);
+				} else {
+					put_rc(res);
+				}
 				break;
 #if FF_USE_FIND
 			case 'L' :	/* fL <path> <pattern> - Directory search */
@@ -433,7 +432,7 @@ int main (void)
 					res = f_read(&File[0], Buff, cnt, &cnt);
 					if (res != FR_OK) { put_rc(res); break; }
 					if (!cnt) break;
-					put_dump(Buff, ofs, cnt, DW_CHAR);
+					put_dump(Buff, ofs, cnt, 1);
 					ofs += 16;
 				}
 				break;
@@ -544,13 +543,32 @@ int main (void)
 #endif
 #endif
 #if FF_USE_MKFS
-			case 'm' :	/* fm <partition rule> <sect/clust> - Create file system */
-				if (!xatoi(&ptr, &p2) || !xatoi(&ptr, &p3)) break;
-				xprintf("The memory card will be formatted. Are you sure? (Y/n)=", p1);
-				xgets(Line, sizeof Line);
-				if (Line[0] == 'Y')
-					put_rc(f_mkfs("", (BYTE)p2, (DWORD)p3, Buff, sizeof Buff));
-				break;
+			case 'm' :	/* fm [<fs type> [<au size> [<align> [<n_fats> [<n_root>]]]]] - Create filesystem */
+				{
+					MKFS_PARM opt, *popt = 0;
+
+					if (xatoi(&ptr, &p2)) {
+						memset(&opt, 0, sizeof opt);
+						popt = &opt;
+						popt->fmt = (BYTE)p2;
+						if (xatoi(&ptr, &p2)) {
+							popt->au_size = p2;
+							if (xatoi(&ptr, &p2)) {
+								popt->align = p2;
+								if (xatoi(&ptr, &p2)) {
+									popt->n_fat = (BYTE)p2;
+									if (xatoi(&ptr, &p2)) {
+										popt->n_root = p2;
+									}
+								}
+							}
+						}
+					}
+					xprintf("The volume will be formatted. Are you sure? (Y/n)=");
+					xgets(Line, sizeof Line);
+					if (Line[0] == 'Y') put_rc(f_mkfs("", popt, Buff, sizeof Buff));
+					break;
+				}
 #endif
 			}
 			break;

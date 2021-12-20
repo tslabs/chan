@@ -2,17 +2,19 @@
 PROJECT	= test1768
 
 ### Source files and search directories
-CSRC	= main.c startup176x.c uart176x.c rtc176x.c sound.c xprintf.c mmc_ssp.c ff.c ffunicode.c
+CSRC	= main.c startup176x.c uart176x.c rtc176x.c sound.c xprintf.c mmc_176x_ssp.c ff.c ffunicode.c
 ASRC	=
 CSRCARM	=
 ASRCARM	=
+
+### Search directories (make uses VPATH to search source files)
 VPATH   =
 
 ### Optimization level (0, 1, 2, 3, 4 or s)
 OPTIMIZE = s
 
 ### C Standard level (c89, gnu89, c99 or gnu99)
-CSTD = gnu89
+CSTD = gnu99
 
 ### Processor type and Thumb(-2) mode for CSRC/ASRC files (YES or NO)
 CPU   = cortex-m3
@@ -35,7 +37,7 @@ DEFS	=
 ADEFS	=
 
 ### Warning contorls
-WARNINGS = all extra
+WARNINGS = all extra error
 
 ### Object output directory
 OBJDIR = obj
@@ -79,6 +81,7 @@ CFLAGS += $(addprefix -W,$(WARNINGS))
 CFLAGS += $(addprefix -I,$(INCDIRS))
 CFLAGS += $(addprefix -D,$(DEFS))
 CFLAGS += -Wp,-MM,-MP,-MT,$(OBJDIR)/$(*F).o,-MF,$(OBJDIR)/$(*F).d
+CFLAGS += -fno-diagnostics-color
 
 
 # Assembler flags

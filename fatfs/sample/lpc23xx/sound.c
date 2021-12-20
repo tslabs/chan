@@ -157,7 +157,7 @@ int load_wav (
 
 
 	disp_font_color(C_WHITE);
-	xfprintf(disp_putc, "\f%s\n", title);	/* Put title */
+	xfprintf(OLED, "\f%s\n", title);	/* Put title */
 
 	/* Is it a WAV file? */
 	if (f_read(fp, buff, 12, &br) || br != 12) return -1;
@@ -229,8 +229,8 @@ int load_wav (
 	if (f_lseek(fp, offw)) return -1;	/* Seek to top of wav data */
 	tc = szwav / fsmp / wsmp;			/* Length (sec) */
 
-	xfprintf(disp_putc, "IART=%s\nINAM=%s\n", art, nam);	/* Put IART and INAM field */
-	xfprintf(disp_putc, "Sample=%u.%ukHz/%ubit/%s\nLength=%u:%02u\n", fsmp / 1000, (fsmp / 100) % 10, (md & 2) ? 16 : 8, (md & 1) ? "st" : "mo", tc / 60, tc % 60);
+	xfprintf(OLED, "IART=%s\nINAM=%s\n", art, nam);	/* Put IART and INAM field */
+	xfprintf(OLED, "Sample=%u.%ukHz/%ubit/%s\nLength=%u:%02u\n", fsmp / 1000, (fsmp / 100) % 10, (md & 2) ? 16 : 8, (md & 1) ? "st" : "mo", tc / 60, tc % 60);
 
 	/* Initialize stream parameters and start sound streming */
 	fcb.mode = md;			/* Sampling: b0=mono(0)/stereo(1), b1=8bit(0)/16bit(1) */
@@ -259,7 +259,7 @@ int load_wav (
 		t = (f_tell(fp) - offw - fcb.ct) / fsmp / wsmp;	/* Refresh time display every 1 sec */
 		if (t != tc) {
 			tc = t;
-			xfprintf(disp_putc, "\rTime=%u:%02u", tc / 60, tc % 60);
+			xfprintf(OLED, "\rTime=%u:%02u", tc / 60, tc % 60);
 		}
 	}
 
